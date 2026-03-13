@@ -60,6 +60,26 @@ pub struct DexData {
     pub repos: Vec<RepoInfo>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketplaceServer {
+    pub name: String,
+    pub description: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub author: String,
+    pub category: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticResult {
+    pub success: bool,
+    pub message: String,
+    pub suggestion: Option<String>,
+    pub missing_runtime: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageStats {

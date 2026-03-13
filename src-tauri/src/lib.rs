@@ -20,7 +20,9 @@ pub fn run() {
             create_skill,
             test_mcp_connection,
             sync_mcp_to_all_tools,
-            get_usage_stats
+            get_usage_stats,
+            get_marketplace_servers,
+            spawn_mcp_and_stream_logs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

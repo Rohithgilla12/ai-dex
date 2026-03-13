@@ -52,9 +52,25 @@ export interface UsageStats {
   commandRatio: number;
 }
 
+export interface MarketplaceServer {
+  name: string;
+  description: string;
+  command: string;
+  args: string[];
+  author: string;
+  category: string;
+}
+
+export interface DiagnosticResult {
+  success: boolean;
+  message: string;
+  suggestion?: string;
+  missingRuntime?: string;
+}
+
 export interface DexData {
   tools: ToolInfo[];
   repos: RepoInfo[];
 }
 
-export type ViewMode = "dashboard" | "tools" | "repos" | "add_repo" | "global_search" | "create_skill";
+export type ViewMode = "dashboard" | "tools" | "repos" | "add_repo" | "global_search" | "create_skill" | "marketplace";

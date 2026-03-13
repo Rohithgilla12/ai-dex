@@ -5,6 +5,10 @@ use crate::utils::*;
 use crate::scanner::*;
 use std::collections::{HashMap, BTreeMap};
 use chrono::{Utc, TimeZone};
+use tauri::{AppHandle, Emitter};
+use std::process::Stdio;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command as TokioCommand;
 
 #[tauri::command]
 pub fn get_dex_data() -> DexData {
@@ -67,7 +71,7 @@ pub fn get_dex_data() -> DexData {
         config_path: Some(claude_code_settings.to_string_lossy().to_string()),
         config_content: claude_code_content,
         schema_content: claude_code_schema,
-        mcp_servers: claude_mcp,
+        mcp_servers: claude_mcp, // Claude Code uses the same MCP config
         skills: claude_code_skills,
     });
 
@@ -272,14 +276,88 @@ pub fn create_skill(name: String, description: String, is_claude: bool) -> Resul
 }
 
 #[tauri::command]
-pub fn test_mcp_connection(command: String, args: Vec<String>) -> Result<String, String> {
+pub fn test_mcp_connection(command: String, args: Vec<String>) -> DiagnosticResult {
+    let path_check = Command::new("which").arg(&command).output();
+    if let Ok(output) = path_check {
+        if !output.status.success() {
+            let suggestion = match command.as_str() {
+                "npx" => Some("Node.js is not installed. Install it from nodejs.org".to_string()),
+                "uvx" | "uv" => Some("uv is not installed. Run 'curl -LsSf https://astral.sh/uv/install.sh | sh'".to_string()),
+                "python3" | "python" => Some("Python is not installed or not in PATH.".to_string()),
+                _ => Some(format!("The command '{}' was not found in your system PATH.", command)),
+            };
+            return DiagnosticResult {
+                success: false,
+                message: format!("Binary '{}' not found.", command),
+                suggestion,
+                missing_runtime: Some(command),
+            };
+        }
+    }
+
     match Command::new(&command).args(&args).spawn() {
         Ok(mut child) => {
             let _ = child.kill();
-            Ok("Connection successful. Command exists and is executable.".into())
+            DiagnosticResult {
+                success: true,
+                message: "Connection successful. Command is executable.".into(),
+                suggestion: None,
+                missing_runtime: None,
+            }
         }
-        Err(e) => Err(format!("Failed to start MCP server: {}", e)),
+        Err(e) => DiagnosticResult {
+            success: false,
+            message: format!("Failed to spawn process: {}", e),
+            suggestion: Some("Ensure the command and arguments are correct.".into()),
+            missing_runtime: None,
+        },
     }
+}
+
+#[tauri::command]
+pub fn get_marketplace_servers() -> Vec<MarketplaceServer> {
+    vec![
+        MarketplaceServer {
+            name: "Brave Search".into(),
+            description: "Search the web using Brave's privacy-focused search engine.".into(),
+            command: "npx".into(),
+            args: vec!["-y".into(), "@modelcontextprotocol/server-brave-search".into()],
+            author: "MCP Team".into(),
+            category: "Search".into(),
+        },
+        MarketplaceServer {
+            name: "Google Maps".into(),
+            description: "Search for places and get location details.".into(),
+            command: "npx".into(),
+            args: vec!["-y".into(), "@modelcontextprotocol/server-google-maps".into()],
+            author: "MCP Team".into(),
+            category: "Location".into(),
+        },
+        MarketplaceServer {
+            name: "GitHub".into(),
+            description: "Interact with GitHub repositories, issues, and PRs.".into(),
+            command: "npx".into(),
+            args: vec!["-y".into(), "@modelcontextprotocol/server-github".into()],
+            author: "MCP Team".into(),
+            category: "Development".into(),
+        },
+        MarketplaceServer {
+            name: "Postgres".into(),
+            description: "Read-only access to PostgreSQL databases.".into(),
+            command: "npx".into(),
+            args: vec!["-y".into(), "@modelcontextprotocol/server-postgres".into()],
+            author: "MCP Team".into(),
+            category: "Database".into(),
+        },
+        MarketplaceServer {
+            name: "Sequential Thinking".into(),
+            description: "A tool for structured problem solving and brainstorming.".into(),
+            command: "npx".into(),
+            args: vec!["-y".into(), "@modelcontextprotocol/server-sequential-thinking".into()],
+            author: "MCP Team".into(),
+            category: "Thinking".into(),
+        },
+    ]
 }
 
 #[tauri::command]
@@ -302,25 +380,17 @@ pub fn get_usage_stats() -> UsageStats {
                         let dt = Utc.timestamp_opt(ts / 1000, 0).unwrap();
                         let date_str = dt.format("%Y-%m-%d").to_string();
                         let hour = dt.format("%H").to_string().parse::<usize>().unwrap_or(0);
-                        
                         *daily_counts.entry(date_str).or_insert(0) += 1;
-                        if hour < 24 {
-                            hourly_counts[hour] += 1;
-                        }
+                        if hour < 24 { hourly_counts[hour] += 1; }
                     }
-                    
                     if let Some(display) = v.get("display").and_then(|d| d.as_str()) {
                         let trimmed = display.trim();
                         if !trimmed.is_empty() {
                             total_prompt_chars += trimmed.len();
                             total_messages += 1;
-                            
-                            if trimmed.starts_with('!') || trimmed.starts_with('/') {
-                                command_count += 1;
-                            }
+                            if trimmed.starts_with('!') || trimmed.starts_with('/') { command_count += 1; }
                         }
                     }
-
                     if let Some(proj) = v.get("project").and_then(|p| p.as_str()) {
                         let name = proj.split('/').last().unwrap_or("unknown").to_string();
                         *project_counts.entry(name).or_insert(0) += 1;
@@ -330,13 +400,8 @@ pub fn get_usage_stats() -> UsageStats {
         }
     }
 
-    let daily_activity = daily_counts.into_iter()
-        .map(|(date, count)| ActivityPoint { date, count })
-        .collect();
-
-    let mut top_projects: Vec<ProjectActivity> = project_counts.into_iter()
-        .map(|(name, count)| ProjectActivity { name, count })
-        .collect();
+    let daily_activity = daily_counts.into_iter().map(|(date, count)| ActivityPoint { date, count }).collect();
+    let mut top_projects: Vec<ProjectActivity> = project_counts.into_iter().map(|(name, count)| ProjectActivity { name, count }).collect();
     top_projects.sort_by(|a, b| b.count.cmp(&a.count));
     top_projects.truncate(5);
 
@@ -345,22 +410,30 @@ pub fn get_usage_stats() -> UsageStats {
                        dex.repos.iter().map(|r| r.skills.len()).sum::<usize>();
 
     let mut skill_distribution = HashMap::new();
-    for tool in dex.tools {
-        skill_distribution.insert(tool.name, tool.skills.len());
-    }
+    for tool in dex.tools { skill_distribution.insert(tool.name, tool.skills.len()); }
 
     let avg_prompt_length = if total_messages > 0 { total_prompt_chars / total_messages } else { 0 };
     let command_ratio = if total_messages > 0 { command_count as f64 / total_messages as f64 } else { 0.0 };
 
-    UsageStats {
-        daily_activity,
-        hourly_activity: hourly_counts,
-        total_skills,
-        top_projects,
-        skill_distribution,
-        avg_prompt_length,
-        command_ratio,
-    }
+    UsageStats { daily_activity, hourly_activity: hourly_counts, total_skills, top_projects, skill_distribution, avg_prompt_length, command_ratio }
+}
+
+#[tauri::command]
+pub async fn spawn_mcp_and_stream_logs(app: AppHandle, command: String, args: Vec<String>) -> Result<(), String> {
+    let mut child = TokioCommand::new(command).args(args).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let app_stdout = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await { let _ = app_stdout.emit("mcp-log", line); }
+    });
+    let app_stderr = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await { let _ = app_stderr.emit("mcp-log", format!("ERR: {}", line)); }
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -377,15 +450,10 @@ pub fn sync_mcp_to_all_tools(name: String, config: McpServerConfig) -> Result<St
                 let mcp_servers = json_val.get_mut("mcpServers").unwrap().as_object_mut().unwrap();
                 mcp_servers.insert(name.clone(), serde_json::to_value(&config).unwrap());
                 let updated_content = serde_json::to_string_pretty(&json_val).unwrap();
-                if let Ok(_) = fs::write(&claude_path, updated_content) {
-                    updated_tools.push("Claude Desktop");
-                }
+                if let Ok(_) = fs::write(&claude_path, updated_content) { updated_tools.push("Claude Desktop"); }
             }
         }
     }
-    if updated_tools.is_empty() {
-        Err("No tool configurations found to update.".into())
-    } else {
-        Ok(format!("Successfully synced {} to: {}", name, updated_tools.join(", ")))
-    }
+    if updated_tools.is_empty() { Err("No tool configurations found to update.".into()) }
+    else { Ok(format!("Successfully synced {} to: {}", name, updated_tools.join(", "))) }
 }
