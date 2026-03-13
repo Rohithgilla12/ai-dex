@@ -7,7 +7,6 @@ import {
   ViewMode, 
   GlobalSkillSearchResult, 
   McpServerConfig,
-  ActivityPoint,
   ProjectActivity
 } from "./types";
 
@@ -379,10 +378,11 @@ function App() {
           <input
             className="search-input"
             placeholder={
+              viewMode === "dashboard" ? "Analyze your AI ecosystem..." :
               viewMode === "add_repo" ? "Adding new repository..." :
               viewMode === "global_search" ? "Search the open skills ecosystem..." :
-              viewMode === "dashboard" ? "AI Dexterity Usage Insights" :
-              `Search ${currentTool?.name || currentRepo?.name}...`
+              viewMode === "create_skill" ? "Scaffold a new skill..." :
+              `Search ${currentTool?.name || currentRepo?.name || "Dex"}...`
             }
             value={viewMode === "global_search" ? globalQuery : searchTerm}
             onChange={(e) => {
@@ -397,7 +397,7 @@ function App() {
                 handleGlobalSearch();
               }
             }}
-            disabled={viewMode === "add_repo" || viewMode === "dashboard"}
+            disabled={viewMode === "add_repo"}
             autoFocus
           />
           {currentTool?.schemaContent && viewMode === "tools" && (
@@ -410,64 +410,114 @@ function App() {
           {/* View: Dashboard */}
           {viewMode === "dashboard" && usageStats && (
             <section className="dashboard-view">
-              <h2 style={{ fontSize: "24px", marginBottom: "24px" }}>AI Ecosystem Insights</h2>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "32px" }}>
+                <div>
+                  <h2 style={{ fontSize: "28px", fontWeight: 800, letterSpacing: "-0.02em" }}>AI Ecosystem Insights</h2>
+                  <p style={{ color: "var(--text-muted)", marginTop: "4px" }}>Performance and activity overview across your local agents.</p>
+                </div>
+                <button className="btn-modern" onClick={fetchData} style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)", color: "var(--text-main)" }}>Refresh Data</button>
+              </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "20px", marginBottom: "32px" }}>
+              <div className="dashboard-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "20px", marginBottom: "32px" }}>
                 <div className="stat-card">
                   <span className="stat-label">Total Skills</span>
                   <span className="stat-value">{usageStats.totalSkills}</span>
                 </div>
                 <div className="stat-card">
-                  <span className="stat-label">Active Days (Claude)</span>
+                  <span className="stat-label">Active Days</span>
                   <span className="stat-value">{usageStats.dailyActivity.length}</span>
                 </div>
                 <div className="stat-card">
+                  <span className="stat-label">Total Requests</span>
+                  <span className="stat-value">{usageStats.dailyActivity.reduce((acc, curr) => acc + curr.count, 0)}</span>
+                </div>
+                <div className="stat-card">
                   <span className="stat-label">Top Tool</span>
-                  <span className="stat-value" style={{ fontSize: "20px" }}>
+                  <span className="stat-value" style={{ fontSize: "20px", textTransform: "capitalize" }}>
                    {(Object.entries(usageStats.skillDistribution) as [string, number][]).sort((a,b) => b[1]-a[1])[0]?.[0] || "None"}
                   </span>
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "20px" }}>
-                <div className="mcp-container" style={{ padding: "24px" }}>
-                  <h3 className="section-title" style={{ marginTop: 0 }}>Daily Activity (Last 30 Days)</h3>
-                  <div style={{ height: "150px", width: "100%", marginTop: "20px", display: "flex", alignItems: "flex-end", gap: "4px" }}>
-                    {usageStats.dailyActivity.slice(-30).map((day: ActivityPoint) => {
-                      const max = Math.max(...usageStats.dailyActivity.map((d: ActivityPoint) => d.count), 1);
-                      const height = (day.count / max) * 100;
+              <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "24px", marginBottom: "24px" }}>
+                <div className="chart-container">
+                  <h3 className="section-title" style={{ marginTop: 0 }}>Activity Intensity</h3>
+                  <div style={{ height: "200px", width: "100%", position: "relative", marginTop: "24px" }}>
+                    <svg width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 100 100">
+                      <defs>
+                        <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.3" />
+                          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      {/* Area Chart */}
+                      <path
+                        d={`M 0 100 ${usageStats.dailyActivity.slice(-20).map((d, i, arr) => {
+                          const max = Math.max(...usageStats.dailyActivity.map(x => x.count), 1);
+                          const x = (i / (arr.length - 1)) * 100;
+                          const y = 100 - (d.count / max) * 80;
+                          return `L ${x} ${y}`;
+                        }).join(" ")} L 100 100 Z`}
+                        fill="url(#areaGradient)"
+                      />
+                      {/* Line */}
+                      <path
+                        d={`M 0 ${100 - (usageStats.dailyActivity.slice(-20)[0]?.count / Math.max(...usageStats.dailyActivity.map(x => x.count), 1) * 80 || 100)} ${usageStats.dailyActivity.slice(-20).map((d, i, arr) => {
+                          const max = Math.max(...usageStats.dailyActivity.map(x => x.count), 1);
+                          const x = (i / (arr.length - 1)) * 100;
+                          const y = 100 - (d.count / max) * 80;
+                          return `L ${x} ${y}`;
+                        }).join(" ")}`}
+                        fill="none"
+                        stroke="var(--accent)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px" }}>
+                      <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>{usageStats.dailyActivity.slice(-20)[0]?.date}</span>
+                      <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>Today</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="chart-container">
+                  <h3 className="section-title" style={{ marginTop: 0 }}>Skill Distribution</h3>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "20px" }}>
+                    {Object.entries(usageStats.skillDistribution).map(([name, count]) => {
+                      const max = Math.max(...Object.values(usageStats.skillDistribution), 1);
+                      const percentage = (count / max) * 100;
                       return (
-                        <div 
-                          key={day.date} 
-                          style={{ 
-                            flex: 1, 
-                            height: `${height}%`, 
-                            background: "var(--accent)", 
-                            borderRadius: "2px 2px 0 0",
-                            opacity: 0.5 + (height/200),
-                            transition: "height 0.3s ease"
-                          }} 
-                          title={`${day.date}: ${day.count} requests`}
-                        />
+                        <div key={name} style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
+                            <span style={{ color: "var(--text-main)", fontWeight: 500 }}>{name}</span>
+                            <span style={{ color: "var(--text-muted)" }}>{count} skills</span>
+                          </div>
+                          <div style={{ height: "6px", width: "100%", background: "rgba(255,255,255,0.03)", borderRadius: "10px", overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${percentage}%`, background: "var(--accent)", borderRadius: "10px", transition: "width 1s ease-out" }} />
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
                 </div>
+              </div>
 
-                <div className="mcp-container" style={{ padding: "24px" }}>
-                  <h3 className="section-title" style={{ marginTop: 0 }}>Top AI Projects</h3>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "16px" }}>
-                    {usageStats.topProjects.map((proj: ProjectActivity, i: number) => (
-                      <div key={proj.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: "13px", color: "var(--text-main)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {i+1}. {proj.name}
-                        </span>
-                        <span style={{ fontSize: "11px", color: "var(--text-muted)", background: "var(--bg-active)", padding: "2px 6px", borderRadius: "4px" }}>
-                          {proj.count}
-                        </span>
+              <div className="chart-container">
+                <h3 className="section-title" style={{ marginTop: 0 }}>Top Active Projects</h3>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px", marginTop: "16px" }}>
+                  {usageStats.topProjects.map((proj: ProjectActivity, i: number) => (
+                    <div key={proj.name} className="project-item">
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <div style={{ width: "24px", height: "24px", borderRadius: "6px", background: "var(--accent-glow)", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 800 }}>
+                          {i + 1}
+                        </div>
+                        <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)" }}>{proj.name}</span>
                       </div>
-                    ))}
-                  </div>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--accent)" }}>{proj.count} reqs</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </section>

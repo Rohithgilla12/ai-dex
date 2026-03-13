@@ -356,22 +356,37 @@ code {
 /* Dashboard Styles */
 .dashboard-view {
   animation: fadeIn 0.4s ease-out;
+  padding-bottom: 40px;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+  marginBottom: 32px;
 }
 
 .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  transition: transform 0.2s ease, border-color 0.2s ease;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
 }
 
-.stat-card:hover {
-  border-color: var(--accent);
-  transform: translateY(-2px);
+.stat-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.5;
 }
 
 .stat-label {
@@ -383,10 +398,50 @@ code {
 }
 
 .stat-value {
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 800;
   color: var(--text-main);
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.chart-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 24px;
+  height: 100%;
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(53, 1fr);
+  gap: 3px;
+}
+
+.heatmap-cell {
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.heatmap-cell.level-1 { background: rgba(88, 166, 255, 0.2); }
+.heatmap-cell.level-2 { background: rgba(88, 166, 255, 0.4); }
+.heatmap-cell.level-3 { background: rgba(88, 166, 255, 0.7); }
+.heatmap-cell.level-4 { background: rgba(88, 166, 255, 1.0); }
+
+.project-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.project-item:hover {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .mcp-action-btn {
