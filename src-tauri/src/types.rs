@@ -59,3 +59,26 @@ pub struct DexData {
     pub tools: Vec<ToolInfo>,
     pub repos: Vec<RepoInfo>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageStats {
+    pub daily_activity: Vec<ActivityPoint>,
+    pub total_skills: usize,
+    pub top_projects: Vec<ProjectActivity>,
+    pub skill_distribution: HashMap<String, usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityPoint {
+    pub date: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectActivity {
+    pub name: String,
+    pub count: usize,
+}

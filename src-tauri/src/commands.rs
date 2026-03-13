@@ -3,6 +3,8 @@ use std::process::Command;
 use crate::types::*;
 use crate::utils::*;
 use crate::scanner::*;
+use std::collections::{HashMap, BTreeMap};
+use chrono::{Utc, TimeZone};
 
 #[tauri::command]
 pub fn get_dex_data() -> DexData {
@@ -65,7 +67,7 @@ pub fn get_dex_data() -> DexData {
         config_path: Some(claude_code_settings.to_string_lossy().to_string()),
         config_content: claude_code_content,
         schema_content: claude_code_schema,
-        mcp_servers: claude_mcp, // Claude Code uses the same MCP config
+        mcp_servers: claude_mcp,
         skills: claude_code_skills,
     });
 
@@ -277,6 +279,59 @@ pub fn test_mcp_connection(command: String, args: Vec<String>) -> Result<String,
             Ok("Connection successful. Command exists and is executable.".into())
         }
         Err(e) => Err(format!("Failed to start MCP server: {}", e)),
+    }
+}
+
+#[tauri::command]
+pub fn get_usage_stats() -> UsageStats {
+    let home = get_home_path();
+    let history_path = home.join(".claude/history.jsonl");
+    
+    let mut daily_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut project_counts: HashMap<String, usize> = HashMap::new();
+    
+    if history_path.exists() {
+        if let Ok(content) = fs::read_to_string(history_path) {
+            for line in content.lines() {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                    if let Some(ts) = v.get("timestamp").and_then(|t| t.as_i64()) {
+                        let dt = Utc.timestamp_opt(ts / 1000, 0).unwrap();
+                        let date_str = dt.format("%Y-%m-%d").to_string();
+                        *daily_counts.entry(date_str).or_insert(0) += 1;
+                    }
+                    if let Some(proj) = v.get("project").and_then(|p| p.as_str()) {
+                        let name = proj.split('/').last().unwrap_or("unknown").to_string();
+                        *project_counts.entry(name).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    let daily_activity = daily_counts.into_iter()
+        .map(|(date, count)| ActivityPoint { date, count })
+        .collect();
+
+    let mut top_projects: Vec<ProjectActivity> = project_counts.into_iter()
+        .map(|(name, count)| ProjectActivity { name, count })
+        .collect();
+    top_projects.sort_by(|a, b| b.count.cmp(&a.count));
+    top_projects.truncate(5);
+
+    let dex = get_dex_data();
+    let total_skills = dex.tools.iter().map(|t| t.skills.len()).sum::<usize>() + 
+                       dex.repos.iter().map(|r| r.skills.len()).sum::<usize>();
+
+    let mut skill_distribution = HashMap::new();
+    for tool in dex.tools {
+        skill_distribution.insert(tool.name, tool.skills.len());
+    }
+
+    UsageStats {
+        daily_activity,
+        total_skills,
+        top_projects,
+        skill_distribution,
     }
 }
 

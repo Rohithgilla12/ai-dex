@@ -1,49 +1,22 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
-
-interface McpServerConfig {
-  command: string;
-  args: string[];
-}
-
-interface SkillInfo {
-  name: string;
-  description?: string;
-}
-
-interface ToolInfo {
-  name: string;
-  configPath?: string;
-  configContent?: string;
-  schemaContent?: string;
-  mcpServers?: Record<string, McpServerConfig>;
-  skills: SkillInfo[];
-}
-
-interface RepoInfo {
-  name: string;
-  url: string;
-  path: string;
-  skills: SkillInfo[];
-}
-
-interface DexData {
-  tools: ToolInfo[];
-  repos: RepoInfo[];
-}
-
-interface GlobalSkillSearchResult {
-  id: string;
-  installs: string;
-  url: string;
-}
+import { 
+  DexData, 
+  UsageStats, 
+  ViewMode, 
+  GlobalSkillSearchResult, 
+  McpServerConfig,
+  ActivityPoint,
+  ProjectActivity
+} from "./types";
 
 function App() {
   const [dexData, setDexData] = useState<DexData | null>(null);
+  const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   
   // Navigation State
-  const [viewMode, setViewMode] = useState<"tools" | "repos" | "add_repo" | "global_search" | "create_skill">("tools");
+  const [viewMode, setViewMode] = useState<ViewMode>("dashboard");
   const [selectedIndex, setSelectedIndex] = useState(0);
   
   // Editor State
@@ -69,7 +42,7 @@ function App() {
   const [isClaudeSkill, setIsClaudeSkill] = useState(false);
   const [isCreatingSkill, setIsCreatingSkill] = useState(false);
 
-  // Add MCP Server State
+  // MCP Server State
   const [newMcpName, setNewMcpName] = useState("");
   const [newMcpCommand, setNewMcpCommand] = useState("");
   const [newMcpArgs, setNewMcpArgs] = useState("");
@@ -80,6 +53,8 @@ function App() {
     try {
       const data: DexData = await invoke("get_dex_data");
       setDexData(data);
+      const usage: UsageStats = await invoke("get_usage_stats");
+      setUsageStats(usage);
     } catch (err) {
       setError(`Connection Error: ${err}`);
     }
@@ -331,8 +306,18 @@ function App() {
   return (
     <div className="app-container">
       <aside className="sidebar">
+        {/* Dashboard */}
+        <div className="sidebar-header">Insights</div>
+        <div 
+          className={`sidebar-item ${viewMode === "dashboard" ? "active" : ""}`}
+          onClick={() => { setViewMode("dashboard"); setSearchTerm(""); }}
+        >
+          <div className="sidebar-item-icon" style={{ background: "var(--accent)" }} />
+          Usage Dashboard
+        </div>
+
         {/* Core Tools */}
-        <div className="sidebar-header">Core Tools</div>
+        <div className="sidebar-header" style={{ marginTop: "20px" }}>Core Tools</div>
         {dexData.tools.map((tool, index) => (
           <div
             key={tool.name}
@@ -381,7 +366,7 @@ function App() {
           <div className="sidebar-item-icon" style={{ background: "var(--accent)" }} />
           Find Skills
         </div>
-        
+
         <div style={{ marginTop: "auto", padding: "12px" }}>
           <div className="kb-hint">
             <span className="kb-key">⌘</span> <span className="kb-key">S</span> to Save Configs
@@ -394,8 +379,9 @@ function App() {
           <input
             className="search-input"
             placeholder={
-              viewMode === "add_repo" ? "Adding new repository..." : 
+              viewMode === "add_repo" ? "Adding new repository..." :
               viewMode === "global_search" ? "Search the open skills ecosystem..." :
+              viewMode === "dashboard" ? "AI Dexterity Usage Insights" :
               `Search ${currentTool?.name || currentRepo?.name}...`
             }
             value={viewMode === "global_search" ? globalQuery : searchTerm}
@@ -411,7 +397,7 @@ function App() {
                 handleGlobalSearch();
               }
             }}
-            disabled={viewMode === "add_repo"}
+            disabled={viewMode === "add_repo" || viewMode === "dashboard"}
             autoFocus
           />
           {currentTool?.schemaContent && viewMode === "tools" && (
@@ -420,7 +406,73 @@ function App() {
         </header>
 
         <div className="content-scroll">
-          
+
+          {/* View: Dashboard */}
+          {viewMode === "dashboard" && usageStats && (
+            <section className="dashboard-view">
+              <h2 style={{ fontSize: "24px", marginBottom: "24px" }}>AI Ecosystem Insights</h2>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "20px", marginBottom: "32px" }}>
+                <div className="stat-card">
+                  <span className="stat-label">Total Skills</span>
+                  <span className="stat-value">{usageStats.totalSkills}</span>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-label">Active Days (Claude)</span>
+                  <span className="stat-value">{usageStats.dailyActivity.length}</span>
+                </div>
+                <div className="stat-card">
+                  <span className="stat-label">Top Tool</span>
+                  <span className="stat-value" style={{ fontSize: "20px" }}>
+                   {(Object.entries(usageStats.skillDistribution) as [string, number][]).sort((a,b) => b[1]-a[1])[0]?.[0] || "None"}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "20px" }}>
+                <div className="mcp-container" style={{ padding: "24px" }}>
+                  <h3 className="section-title" style={{ marginTop: 0 }}>Daily Activity (Last 30 Days)</h3>
+                  <div style={{ height: "150px", width: "100%", marginTop: "20px", display: "flex", alignItems: "flex-end", gap: "4px" }}>
+                    {usageStats.dailyActivity.slice(-30).map((day: ActivityPoint) => {
+                      const max = Math.max(...usageStats.dailyActivity.map((d: ActivityPoint) => d.count), 1);
+                      const height = (day.count / max) * 100;
+                      return (
+                        <div 
+                          key={day.date} 
+                          style={{ 
+                            flex: 1, 
+                            height: `${height}%`, 
+                            background: "var(--accent)", 
+                            borderRadius: "2px 2px 0 0",
+                            opacity: 0.5 + (height/200),
+                            transition: "height 0.3s ease"
+                          }} 
+                          title={`${day.date}: ${day.count} requests`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mcp-container" style={{ padding: "24px" }}>
+                  <h3 className="section-title" style={{ marginTop: 0 }}>Top AI Projects</h3>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "16px" }}>
+                    {usageStats.topProjects.map((proj: ProjectActivity, i: number) => (
+                      <div key={proj.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: "13px", color: "var(--text-main)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {i+1}. {proj.name}
+                        </span>
+                        <span style={{ fontSize: "11px", color: "var(--text-muted)", background: "var(--bg-active)", padding: "2px 6px", borderRadius: "4px" }}>
+                          {proj.count}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
           {/* View: Global Search */}
           {viewMode === "global_search" && (
             <section>
@@ -431,8 +483,8 @@ function App() {
                     Search across the <a href="https://skills.sh" target="_blank" style={{ color: "var(--accent)", textDecoration: "none" }}>skills.sh</a> registry
                   </div>
                 </div>
-                <button 
-                  className="btn-modern" 
+                <button
+                  className="btn-modern"
                   onClick={handleGlobalSearch}
                   disabled={isSearching || !globalQuery.trim()}
                 >
@@ -457,8 +509,8 @@ function App() {
                           <a href={skill.url} target="_blank" style={{ color: "var(--text-muted)", textDecoration: "underline", fontSize: "11px" }}>View on Registry</a>
                         </div>
                       </div>
-                      <button 
-                        className="btn-modern" 
+                      <button
+                        className="btn-modern"
                         style={{ width: "100%", background: installingSkill === skill.id ? "var(--border-subtle)" : "var(--accent)", color: installingSkill === skill.id ? "var(--text-muted)" : "#000" }}
                         onClick={() => handleInstallSkill(skill.id)}
                         disabled={installingSkill !== null}
@@ -676,11 +728,11 @@ function App() {
                                 <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
                                   <button 
                                     onClick={() => handleTestMcp(config.command, config.args)}
-                                    style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-main)", border: "1px solid var(--border-subtle)", padding: "4px 10px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, cursor: "pointer" }}
+                                    className="mcp-action-btn test"
                                   >TEST</button>
                                   <button 
                                     onClick={() => handleSyncMcpToAll(name, config)}
-                                    style={{ background: "var(--accent)", color: "#000", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, cursor: "pointer" }}
+                                    className="mcp-action-btn sync"
                                   >SYNC ALL</button>
                                 </div>
                               </td>

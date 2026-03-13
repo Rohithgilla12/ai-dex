@@ -32,9 +32,26 @@ export interface GlobalSkillSearchResult {
   url: string;
 }
 
+export interface ActivityPoint {
+  date: string;
+  count: number;
+}
+
+export interface ProjectActivity {
+  name: string;
+  count: number;
+}
+
+export interface UsageStats {
+  dailyActivity: ActivityPoint[];
+  totalSkills: number;
+  topProjects: ProjectActivity[];
+  skillDistribution: Record<string, number>;
+}
+
 export interface DexData {
   tools: ToolInfo[];
   repos: RepoInfo[];
 }
 
-export type ViewMode = "tools" | "repos" | "add_repo" | "global_search" | "create_skill";
+export type ViewMode = "dashboard" | "tools" | "repos" | "add_repo" | "global_search" | "create_skill";

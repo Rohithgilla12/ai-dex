@@ -19,7 +19,8 @@ pub fn run() {
             uninstall_global_skill,
             create_skill,
             test_mcp_connection,
-            sync_mcp_to_all_tools
+            sync_mcp_to_all_tools,
+            get_usage_stats
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
