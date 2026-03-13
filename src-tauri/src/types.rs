@@ -84,12 +84,24 @@ pub struct DiagnosticResult {
 #[serde(rename_all = "camelCase")]
 pub struct UsageStats {
     pub daily_activity: Vec<ActivityPoint>,
-    pub hourly_activity: Vec<usize>, // 24 entries
+    pub hourly_activity: Vec<usize>,
     pub total_skills: usize,
     pub top_projects: Vec<ProjectActivity>,
     pub skill_distribution: HashMap<String, usize>,
     pub avg_prompt_length: usize,
-    pub command_ratio: f64, // 0.0 to 1.0
+    pub command_ratio: f64,
+    pub estimated_cost_today: f64,
+    pub estimated_cost_week: f64,
+    pub estimated_cost_all_time: f64,
+    pub model_usage_stats: HashMap<String, ModelUsage>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelUsage {
+    pub message_count: usize,
+    pub estimated_tokens: usize,
+    pub estimated_cost: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

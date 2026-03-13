@@ -14,6 +14,7 @@ import {
   AreaChart, 
   Area, 
   XAxis, 
+  YAxis,
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer,
@@ -34,7 +35,13 @@ import {
   Terminal as TerminalIcon,
   Play,
   CheckCircle2,
-  XCircle
+  XCircle,
+  DollarSign,
+  TrendingUp,
+  Lightbulb,
+  ShieldAlert,
+  Clock,
+  History
 } from "lucide-react";
 
 function App() {
@@ -69,6 +76,8 @@ function App() {
   const [mcpLogs, setMcpLogs] = useState<string[]>([]);
   const [isDebugging, setIsDebugging] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<Record<string, DiagnosticResult>>({});
+
+  const [dailyLimit] = useState(10.0);
 
   const fetchData = async () => {
     try {
@@ -205,6 +214,8 @@ function App() {
     catch (err: any) { console.error(`Failed: ${err}`); }
   };
 
+  const limitProgress = usageStats ? (usageStats.estimatedCostToday / dailyLimit) * 100 : 0;
+
   if (!dexData) return <div className="main-content" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>Initializing Dex...</div>;
 
   return (
@@ -212,21 +223,25 @@ function App() {
       <aside className="sidebar">
         <div className="sidebar-header">Insights</div>
         <div className={`sidebar-item ${viewMode === "dashboard" ? "active" : ""}`} onClick={() => { setViewMode("dashboard"); setSearchTerm(""); }}><Activity size={16} /> Usage Dashboard</div>
+        <div className={`sidebar-item ${viewMode === "costs" ? "active" : ""}`} onClick={() => { setViewMode("costs"); setSearchTerm(""); }}><DollarSign size={16} /> AI Cost Center</div>
         <div className={`sidebar-item ${viewMode === "marketplace" ? "active" : ""}`} onClick={() => { setViewMode("marketplace"); setSearchTerm(""); }}><Store size={16} /> MCP Marketplace</div>
+        
         <div className="sidebar-header" style={{ marginTop: "20px" }}>Core Tools</div>
         {dexData.tools.map((tool, index) => (
           <div key={tool.name} className={`sidebar-item ${viewMode === "tools" && index === selectedIndex ? "active" : ""}`} onClick={() => { setViewMode("tools"); setSelectedIndex(index); setSearchTerm(""); }}><Cpu size={16} /> {tool.name}</div>
         ))}
+        
         <div className="sidebar-header" style={{ marginTop: "20px" }}>Skill Repositories</div>
         {dexData.repos.map((repo, index) => (
           <div key={repo.name} className={`sidebar-item ${viewMode === "repos" && index === selectedIndex ? "active" : ""}`} onClick={() => { setViewMode("repos"); setSelectedIndex(index); setSearchTerm(""); }}><Layers size={16} /> {repo.name}</div>
         ))}
         <div className={`sidebar-item sidebar-item-add ${viewMode === "add_repo" ? "active" : ""}`} onClick={() => { setViewMode("add_repo"); setSearchTerm(""); }}><Plus size={16} /> Add Repository</div>
+        
         <div className="sidebar-header" style={{ marginTop: "20px" }}>Create</div>
         <div className={`sidebar-item sidebar-item-add ${viewMode === "create_skill" ? "active" : ""}`} onClick={() => { setViewMode("create_skill"); setSearchTerm(""); }}><Target size={16} /> Create Skill</div>
+        
         <div className="sidebar-header" style={{ marginTop: "20px" }}>Discover</div>
         <div className={`sidebar-item ${viewMode === "global_search" ? "active" : ""}`} onClick={() => { setViewMode("global_search"); setSearchTerm(""); }}><Search size={16} /> Find Skills</div>
-        <div style={{ marginTop: "auto", padding: "12px" }}><div className="kb-hint"><span className="kb-key">⌘</span> <span className="kb-key">S</span> to Save</div></div>
       </aside>
 
       <main className="main-content">
@@ -255,7 +270,26 @@ function App() {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "24px", marginBottom: "24px" }}>
                 <div className="chart-container" style={{ height: "350px" }}><h3 className="section-title">Intensity</h3><ResponsiveContainer width="100%" height="85%"><AreaChart data={filteredActivity}><defs><linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--accent)" stopOpacity={0.3}/><stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} /><XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: 'var(--text-muted)', fontSize: 10}} minTickGap={30} /><Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px', fontSize: '12px' }} /><Area type="monotone" dataKey="count" stroke="var(--accent)" strokeWidth={2} fillOpacity={1} fill="url(#colorCount)" animationDuration={1500} /></AreaChart></ResponsiveContainer></div>
-                <div className="chart-container" style={{ height: "350px" }}><h3 className="section-title">Peak</h3><ResponsiveContainer width="100%" height="85%"><BarChart data={usageStats.hourlyActivity.map((count, hour) => ({ hour: `${hour}h`, count }))}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} /><XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{fill: 'var(--text-muted)', fontSize: 9}} interval={3} /><Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px', fontSize: '12px' }} cursor={{fill: 'rgba(255,255,255,0.05)'}} /><Bar dataKey="count" fill="var(--accent)" radius={[2, 2, 0, 0]} opacity={0.8} /></BarChart></ResponsiveContainer></div>
+                <div className="chart-container" style={{ height: "350px" }}><h3 className="section-title">Peak Distribution</h3><ResponsiveContainer width="100%" height="85%"><BarChart data={usageStats.hourlyActivity.map((count, hour) => ({ hour: `${hour}h`, count }))}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} /><XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{fill: 'var(--text-muted)', fontSize: 9}} interval={3} /><Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px', fontSize: '12px' }} cursor={{fill: 'rgba(255,255,255,0.05)'}} /><Bar dataKey="count" fill="var(--accent)" radius={[2, 2, 0, 0]} opacity={0.8} /></BarChart></ResponsiveContainer></div>
+              </div>
+            </section>
+          )}
+
+          {viewMode === "costs" && usageStats && (
+            <section className="dashboard-view">
+              <div style={{ marginBottom: "32px" }}>
+                <h2 style={{ fontSize: "28px", fontWeight: 800 }}>AI Cost Center</h2>
+                <p style={{ color: "var(--text-muted)", marginTop: "4px" }}>Real-time estimated spend across all agents.</p>
+              </div>
+              <div className="dashboard-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "20px", marginBottom: "32px" }}>
+                <div className="stat-card"><div><span className="stat-label">Today</span><Clock size={14} color="var(--accent)" /></div><span className="stat-value">${usageStats.estimatedCostToday.toFixed(2)}</span></div>
+                <div className="stat-card"><div><span className="stat-label">This Week</span><TrendingUp size={14} color="var(--accent)" /></div><span className="stat-value">${usageStats.estimatedCostWeek.toFixed(2)}</span></div>
+                <div className="stat-card"><div><span className="stat-label">Projected Month</span><TrendingUp size={14} color="var(--accent)" /></div><span className="stat-value">${(usageStats.estimatedCostToday * 30).toFixed(2)}</span></div>
+                <div className="stat-card"><div><span className="stat-label">All Time</span><History size={14} color="var(--accent)" /></div><span className="stat-value">${usageStats.estimatedCostAll_time.toFixed(2)}</span></div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "24px" }}>
+                <div className="chart-container"><h3 className="section-title">Cost by Model</h3><div style={{ height: "300px", marginTop: "20px" }}><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={Object.entries(usageStats.modelUsageStats).map(([name, stats]) => ({ name, cost: stats.estimatedCost }))}><XAxis type="number" hide /><YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: 'var(--text-main)', fontSize: 12}} width={120} /><Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }} /><Bar dataKey="cost" fill="var(--accent)" radius={[0, 4, 4, 0]} /></BarChart></ResponsiveContainer></div></div>
+                <div className="chart-container"><div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}><Lightbulb size={18} color="var(--accent)" /><h3 className="section-title" style={{ margin: 0 }}>Optimization</h3></div><div style={{ display: "flex", flexDirection: "column", gap: "12px" }}><div className="project-item" style={{ padding: "16px" }}><div style={{ fontSize: "13px", fontWeight: 600 }}>Mix in Sonnet</div><div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Save up to $12/mo by using Sonnet for simple tasks.</div></div></div></div>
               </div>
             </section>
           )}
@@ -325,7 +359,7 @@ function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--accent)' }}><TerminalIcon size={14} /> {isDebugging ? `Logs: ${isDebugging}` : "Diagnostics"}</div>
                         <button onClick={() => { setIsDebugging(null); setDiagnostics({}); setMcpLogs([]); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)' }}>Close</button>
                       </div>
-                      <div style={{ padding: '16px', maxHeight: '250px', overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
+                      <div style={{ padding: '16px', maxHeight: '200px', overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
                         {isDebugging ? mcpLogs.map((log, i) => <div key={i}>{log}</div>) : Object.entries(diagnostics).map(([n, d]) => <div key={n}>{d.success ? <CheckCircle2 size={12}/> : <XCircle size={12}/>} {n}: {d.message}</div>)}
                       </div>
                     </div>
@@ -352,7 +386,7 @@ function App() {
             <section><h3 className="section-title">Create Skill</h3><div className="repo-form-container" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <input type="text" className="repo-input" placeholder="Name" value={skillName} onChange={e => setSkillName(e.target.value)} />
               <textarea className="repo-input" placeholder="Desc" value={skillDesc} onChange={e => setSkillDesc(e.target.value)} />
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-main)' }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "var(--text-main)" }}>
                 <input type="checkbox" checked={isClaudeSkill} onChange={e => setIsClaudeSkill(e.target.checked)} />
                 For Claude Code (~/.claude/skills)
               </label>
@@ -368,6 +402,26 @@ function App() {
           <div style={{ height: "40px" }} />
         </div>
       </main>
+
+      <footer className="status-bar">
+        <div style={{ display: "flex", alignItems: "center", gap: "20px", height: "100%" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div className={`status-dot ${limitProgress > 90 ? 'alert' : 'active'}`} />
+            <span style={{ fontSize: "11px", fontWeight: 700 }}>SYSTEM READY</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, maxWidth: "400px" }}>
+            <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>DAILY BUDGET</span>
+            <div style={{ height: "6px", flex: 1, background: "rgba(255,255,255,0.05)", borderRadius: "10px", overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${Math.min(limitProgress, 100)}%`, background: limitProgress > 90 ? "#ff4d4d" : limitProgress > 70 ? "#fbbf24" : "var(--accent)", transition: "width 1s ease" }} />
+            </div>
+            <span style={{ fontSize: "10px", fontWeight: 700 }}>${usageStats?.estimatedCostToday.toFixed(2)} / ${dailyLimit.toFixed(0)}</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "16px", marginLeft: "auto" }}>
+            {limitProgress > 80 && <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#fbbf24" }}><ShieldAlert size={14} /><span style={{ fontSize: "10px", fontWeight: 700 }}>BUDGET WARNING</span></div>}
+            <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>v0.1.0-alpha</div>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

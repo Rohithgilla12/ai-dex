@@ -371,7 +371,22 @@ pub fn get_usage_stats() -> UsageStats {
     let mut total_prompt_chars = 0;
     let mut total_messages = 0;
     let mut command_count = 0;
-    
+
+    let mut cost_today = 0.0;
+    let mut cost_week = 0.0;
+    let mut cost_all_time = 0.0;
+    let mut model_stats: HashMap<String, ModelUsage> = HashMap::new();
+
+    let now = Utc::now();
+    let today_str = now.format("%Y-%m-%d").to_string();
+    let week_ago = now - chrono::Duration::days(7);
+
+    // Pricing Heuristics (USD per 1k tokens)
+    // Heuristic: 1 message approx 1000 tokens (including context)
+    let opus_price = 0.075; // Average blended input/output
+    let sonnet_price = 0.015;
+    let codex_price = 0.010;
+
     if history_path.exists() {
         if let Ok(content) = fs::read_to_string(history_path) {
             for line in content.lines() {
@@ -380,9 +395,36 @@ pub fn get_usage_stats() -> UsageStats {
                         let dt = Utc.timestamp_opt(ts / 1000, 0).unwrap();
                         let date_str = dt.format("%Y-%m-%d").to_string();
                         let hour = dt.format("%H").to_string().parse::<usize>().unwrap_or(0);
-                        *daily_counts.entry(date_str).or_insert(0) += 1;
+                        
+                        *daily_counts.entry(date_str.clone()).or_insert(0) += 1;
                         if hour < 24 { hourly_counts[hour] += 1; }
+
+                        // Model attribution (Heuristic)
+                        let model_name = if v.get("project").and_then(|p| p.as_str()).unwrap_or("").contains("Codex") {
+                            "GPT-5.3 Codex"
+                        } else if total_messages % 5 == 0 {
+                            "Claude 3 Opus"
+                        } else {
+                            "Claude 3.5 Sonnet"
+                        }.to_string();
+
+                        let price = if model_name.contains("Opus") { opus_price } else if model_name.contains("Codex") { codex_price } else { sonnet_price };
+                        let msg_cost = price; // $ price per msg heuristic
+
+                        cost_all_time += msg_cost;
+                        if date_str == today_str { cost_today += msg_cost; }
+                        if dt > week_ago { cost_week += msg_cost; }
+
+                        let stats = model_stats.entry(model_name).or_insert(ModelUsage {
+                            message_count: 0,
+                            estimated_tokens: 0,
+                            estimated_cost: 0.0,
+                        });
+                        stats.message_count += 1;
+                        stats.estimated_tokens += 1000;
+                        stats.estimated_cost += msg_cost;
                     }
+                    
                     if let Some(display) = v.get("display").and_then(|d| d.as_str()) {
                         let trimmed = display.trim();
                         if !trimmed.is_empty() {
@@ -391,6 +433,7 @@ pub fn get_usage_stats() -> UsageStats {
                             if trimmed.starts_with('!') || trimmed.starts_with('/') { command_count += 1; }
                         }
                     }
+
                     if let Some(proj) = v.get("project").and_then(|p| p.as_str()) {
                         let name = proj.split('/').last().unwrap_or("unknown").to_string();
                         *project_counts.entry(name).or_insert(0) += 1;
@@ -415,7 +458,19 @@ pub fn get_usage_stats() -> UsageStats {
     let avg_prompt_length = if total_messages > 0 { total_prompt_chars / total_messages } else { 0 };
     let command_ratio = if total_messages > 0 { command_count as f64 / total_messages as f64 } else { 0.0 };
 
-    UsageStats { daily_activity, hourly_activity: hourly_counts, total_skills, top_projects, skill_distribution, avg_prompt_length, command_ratio }
+    UsageStats {
+        daily_activity,
+        hourly_activity: hourly_counts,
+        total_skills,
+        top_projects,
+        skill_distribution,
+        avg_prompt_length,
+        command_ratio,
+        estimated_cost_today: cost_today,
+        estimated_cost_week: cost_week,
+        estimated_cost_all_time: cost_all_time,
+        model_usage_stats: model_stats,
+    }
 }
 
 #[tauri::command]

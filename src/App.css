@@ -444,6 +444,51 @@ code {
   background: rgba(255, 255, 255, 0.05);
 }
 
+/* Status Bar */
+.status-bar {
+  height: 32px;
+  background: #000;
+  border-top: 1px solid var(--border-subtle);
+  padding: 0 16px;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.status-dot.active {
+  background: #4ade80;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.4);
+}
+
+.status-dot.alert {
+  background: #ff4d4d;
+  box-shadow: 0 0 8px rgba(255, 77, 77, 0.4);
+}
+
+.kb-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kb-key {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
 .mcp-action-btn {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-subtle);

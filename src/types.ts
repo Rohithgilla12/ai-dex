@@ -42,6 +42,12 @@ export interface ProjectActivity {
   count: number;
 }
 
+export interface ModelUsage {
+  messageCount: number;
+  estimatedTokens: number;
+  estimatedCost: number;
+}
+
 export interface UsageStats {
   dailyActivity: ActivityPoint[];
   hourlyActivity: number[];
@@ -50,6 +56,10 @@ export interface UsageStats {
   skillDistribution: Record<string, number>;
   avgPromptLength: number;
   commandRatio: number;
+  estimatedCostToday: number;
+  estimatedCostWeek: number;
+  estimatedCostAll_time: number;
+  modelUsageStats: Record<string, ModelUsage>;
 }
 
 export interface MarketplaceServer {
@@ -73,4 +83,4 @@ export interface DexData {
   repos: RepoInfo[];
 }
 
-export type ViewMode = "dashboard" | "tools" | "repos" | "add_repo" | "global_search" | "create_skill" | "marketplace";
+export type ViewMode = "dashboard" | "tools" | "repos" | "add_repo" | "global_search" | "create_skill" | "marketplace" | "costs";
