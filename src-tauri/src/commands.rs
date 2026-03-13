@@ -288,7 +288,11 @@ pub fn get_usage_stats() -> UsageStats {
     let history_path = home.join(".claude/history.jsonl");
     
     let mut daily_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut hourly_counts = vec![0; 24];
     let mut project_counts: HashMap<String, usize> = HashMap::new();
+    let mut total_prompt_chars = 0;
+    let mut total_messages = 0;
+    let mut command_count = 0;
     
     if history_path.exists() {
         if let Ok(content) = fs::read_to_string(history_path) {
@@ -297,8 +301,26 @@ pub fn get_usage_stats() -> UsageStats {
                     if let Some(ts) = v.get("timestamp").and_then(|t| t.as_i64()) {
                         let dt = Utc.timestamp_opt(ts / 1000, 0).unwrap();
                         let date_str = dt.format("%Y-%m-%d").to_string();
+                        let hour = dt.format("%H").to_string().parse::<usize>().unwrap_or(0);
+                        
                         *daily_counts.entry(date_str).or_insert(0) += 1;
+                        if hour < 24 {
+                            hourly_counts[hour] += 1;
+                        }
                     }
+                    
+                    if let Some(display) = v.get("display").and_then(|d| d.as_str()) {
+                        let trimmed = display.trim();
+                        if !trimmed.is_empty() {
+                            total_prompt_chars += trimmed.len();
+                            total_messages += 1;
+                            
+                            if trimmed.starts_with('!') || trimmed.starts_with('/') {
+                                command_count += 1;
+                            }
+                        }
+                    }
+
                     if let Some(proj) = v.get("project").and_then(|p| p.as_str()) {
                         let name = proj.split('/').last().unwrap_or("unknown").to_string();
                         *project_counts.entry(name).or_insert(0) += 1;
@@ -327,11 +349,17 @@ pub fn get_usage_stats() -> UsageStats {
         skill_distribution.insert(tool.name, tool.skills.len());
     }
 
+    let avg_prompt_length = if total_messages > 0 { total_prompt_chars / total_messages } else { 0 };
+    let command_ratio = if total_messages > 0 { command_count as f64 / total_messages as f64 } else { 0.0 };
+
     UsageStats {
         daily_activity,
+        hourly_activity: hourly_counts,
         total_skills,
         top_projects,
         skill_distribution,
+        avg_prompt_length,
+        command_ratio,
     }
 }
 

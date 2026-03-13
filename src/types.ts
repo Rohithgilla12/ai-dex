@@ -44,9 +44,12 @@ export interface ProjectActivity {
 
 export interface UsageStats {
   dailyActivity: ActivityPoint[];
+  hourlyActivity: number[];
   totalSkills: number;
   topProjects: ProjectActivity[];
   skillDistribution: Record<string, number>;
+  avgPromptLength: number;
+  commandRatio: number;
 }
 
 export interface DexData {

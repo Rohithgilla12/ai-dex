@@ -16,7 +16,9 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer
+  ResponsiveContainer,
+  BarChart,
+  Bar
 } from "recharts";
 import { 
   Activity, 
@@ -26,7 +28,11 @@ import {
   RefreshCw, 
   Plus, 
   Search, 
-  History
+  History,
+  MessageSquare,
+  Terminal,
+  Zap,
+  Clock
 } from "lucide-react";
 
 function App() {
@@ -468,22 +474,32 @@ function App() {
 
               <div className="dashboard-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "20px", marginBottom: "32px" }}>
                 <div className="stat-card">
-                  <span className="stat-label">Total Skills</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <span className="stat-label">Total Skills</span>
+                    <Layers size={14} color="var(--accent)" />
+                  </div>
                   <span className="stat-value">{usageStats.totalSkills}</span>
                 </div>
                 <div className="stat-card">
-                  <span className="stat-label">Active Days</span>
-                  <span className="stat-value">{filteredActivity.length}</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <span className="stat-label">Avg Prompt</span>
+                    <MessageSquare size={14} color="var(--accent)" />
+                  </div>
+                  <span className="stat-value" style={{ fontSize: "28px" }}>{usageStats.avgPromptLength}<span style={{fontSize: "12px", color: "var(--text-muted)", marginLeft: "4px"}}>chars</span></span>
                 </div>
                 <div className="stat-card">
-                  <span className="stat-label">Requests</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <span className="stat-label">Command Usage</span>
+                    <Terminal size={14} color="var(--accent)" />
+                  </div>
+                  <span className="stat-value">{(usageStats.commandRatio * 100).toFixed(0)}%</span>
+                </div>
+                <div className="stat-card">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <span className="stat-label">Requests</span>
+                    <Zap size={14} color="var(--accent)" />
+                  </div>
                   <span className="stat-value">{totalRequestsInRange}</span>
-                </div>
-                <div className="stat-card">
-                  <span className="stat-label">Top Tool</span>
-                  <span className="stat-value" style={{ fontSize: "20px", textTransform: "capitalize" }}>
-                   {(Object.entries(usageStats.skillDistribution) as [string, number][]).sort((a,b) => b[1]-a[1])[0]?.[0] || "None"}
-                  </span>
                 </div>
               </div>
 
@@ -532,6 +548,38 @@ function App() {
                 </div>
 
                 <div className="chart-container" style={{ height: "350px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                    <h3 className="section-title" style={{ margin: 0 }}>Productivity Peak</h3>
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px" }}><Clock size={12}/> Hourly Distribution</div>
+                  </div>
+                  
+                  <ResponsiveContainer width="100%" height="85%">
+                    <BarChart data={usageStats.hourlyActivity.map((count, hour) => ({ hour: `${hour}h`, count }))}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis 
+                        dataKey="hour" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{fill: 'var(--text-muted)', fontSize: 9}} 
+                        interval={3}
+                      />
+                      <Tooltip 
+                        contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px', fontSize: '12px' }}
+                        cursor={{fill: 'rgba(255,255,255,0.05)'}}
+                      />
+                      <Bar 
+                        dataKey="count" 
+                        fill="var(--accent)" 
+                        radius={[2, 2, 0, 0]}
+                        opacity={0.8}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
+                <div className="chart-container">
                   <h3 className="section-title" style={{ marginTop: 0 }}>Tool Distribution</h3>
                   <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "20px" }}>
                     {Object.entries(usageStats.skillDistribution).map(([name, count]) => {
@@ -550,39 +598,29 @@ function App() {
                       );
                     })}
                   </div>
-                  
-                  <div style={{ marginTop: "auto", paddingTop: "20px", borderTop: "1px solid var(--border-subtle)", display: "flex", justifyContent: "center" }}>
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: "10px", color: "var(--text-muted)", textTransform: "uppercase" }}>Average Capability</div>
-                      <div style={{ fontSize: "20px", fontWeight: 800, color: "var(--text-main)" }}>{(usageStats.totalSkills / Object.keys(usageStats.skillDistribution).length).toFixed(1)} <span style={{fontSize: "12px", color: "var(--text-muted)"}}>skills/tool</span></div>
-                    </div>
-                  </div>
                 </div>
-              </div>
 
-              <div className="chart-container">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                  <h3 className="section-title" style={{ margin: 0 }}>Top Active Projects</h3>
-                  <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Based on interaction volume</div>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px" }}>
-                  {usageStats.topProjects.map((proj: ProjectActivity, i: number) => (
-                    <div key={proj.name} className="project-item" style={{ border: "1px solid transparent", transition: "all 0.2s" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: "var(--accent-glow)", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 800 }}>
-                          {i + 1}
+                <div className="chart-container">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                    <h3 className="section-title" style={{ margin: 0 }}>Top Active Projects</h3>
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Interaction Volume</div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {usageStats.topProjects.map((proj: ProjectActivity, i: number) => (
+                      <div key={proj.name} className="project-item" style={{ border: "1px solid transparent", transition: "all 0.2s" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <div style={{ width: "28px", height: "28px", borderRadius: "6px", background: "var(--accent-glow)", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800 }}>
+                            {i + 1}
+                          </div>
+                          <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)" }}>{proj.name}</span>
                         </div>
-                        <div style={{ display: "flex", flexDirection: "column" }}>
-                          <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-main)" }}>{proj.name}</span>
-                          <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>Active Directory</span>
+                        <div style={{ textAlign: "right" }}>
+                          <span style={{ fontSize: "12px", fontWeight: 800, color: "var(--text-main)" }}>{proj.count}</span>
+                          <span style={{ fontSize: "10px", color: "var(--text-muted)", marginLeft: "4px" }}>reqs</span>
                         </div>
                       </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: "14px", fontWeight: 800, color: "var(--text-main)" }}>{proj.count}</div>
-                        <div style={{ fontSize: "9px", color: "var(--accent)", textTransform: "uppercase", fontWeight: 700 }}>Requests</div>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
             </section>

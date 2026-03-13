@@ -64,9 +64,12 @@ pub struct DexData {
 #[serde(rename_all = "camelCase")]
 pub struct UsageStats {
     pub daily_activity: Vec<ActivityPoint>,
+    pub hourly_activity: Vec<usize>, // 24 entries
     pub total_skills: usize,
     pub top_projects: Vec<ProjectActivity>,
     pub skill_distribution: HashMap<String, usize>,
+    pub avg_prompt_length: usize,
+    pub command_ratio: f64, // 0.0 to 1.0
 }
 
 #[derive(Debug, Serialize, Deserialize)]
