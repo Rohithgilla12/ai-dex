@@ -63,7 +63,7 @@ export interface UsageStats {
   commandRatio: number;
   estimatedCostToday: number;
   estimatedCostWeek: number;
-  estimatedCostAll_time: number;
+  estimatedCostAllTime: number;
   modelUsageStats: Record<string, ModelUsage>;
   commonSequences: ToolSequence[];
 }
