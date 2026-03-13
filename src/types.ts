@@ -66,6 +66,8 @@ export interface UsageStats {
   estimatedCostAllTime: number;
   modelUsageStats: Record<string, ModelUsage>;
   commonSequences: ToolSequence[];
+  totalTokens: number;
+  cacheReadTokens: number;
 }
 
 export interface MemoryEntry {

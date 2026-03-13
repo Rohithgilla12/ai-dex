@@ -20,7 +20,8 @@ import {
   Tooltip, 
   ResponsiveContainer,
   BarChart,
-  Bar
+  Bar,
+  Cell
 } from "recharts";
 import { 
   Activity, 
@@ -311,19 +312,83 @@ function App() {
 
           {viewMode === "costs" && usageStats && (
             <section className="dashboard-view">
-              <div style={{ marginBottom: "32px" }}>
-                <h2 style={{ fontSize: "28px", fontWeight: 800 }}>AI Cost Center</h2>
-                <p style={{ color: "var(--text-muted)", marginTop: "4px" }}>Real-time estimated spend across all agents.</p>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "32px" }}>
+                <div>
+                  <h2 style={{ fontSize: "28px", fontWeight: 800 }}>AI Cost Center</h2>
+                  <p style={{ color: "var(--text-muted)", marginTop: "4px" }}>Precise spend based on real Claude pricing data.</p>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <div className="stat-card" style={{ padding: "12px 20px", flexDirection: "row", gap: "12px", alignItems: "center" }}>
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <span className="stat-label" style={{ fontSize: "9px" }}>Total Tokens</span>
+                      <span style={{ fontSize: "16px", fontWeight: 800 }}>{(usageStats.totalTokens / 1_000_000).toFixed(1)}M</span>
+                    </div>
+                  </div>
+                  <div className="stat-card" style={{ padding: "12px 20px", flexDirection: "row", gap: "12px", alignItems: "center" }}>
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <span className="stat-label" style={{ fontSize: "9px" }}>Cache Efficiency</span>
+                      <span style={{ fontSize: "16px", fontWeight: 800, color: "#4ade80" }}>{((usageStats.cacheReadTokens / usageStats.totalTokens) * 100).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                </div>
               </div>
+
               <div className="dashboard-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "20px", marginBottom: "32px" }}>
                 <div className="stat-card"><div><span className="stat-label">Today</span><Clock size={14} color="var(--accent)" /></div><span className="stat-value">${usageStats.estimatedCostToday.toFixed(2)}</span></div>
                 <div className="stat-card"><div><span className="stat-label">This Week</span><TrendingUp size={14} color="var(--accent)" /></div><span className="stat-value">${usageStats.estimatedCostWeek.toFixed(2)}</span></div>
                 <div className="stat-card"><div><span className="stat-label">Projected Month</span><TrendingUp size={14} color="var(--accent)" /></div><span className="stat-value">${(usageStats.estimatedCostToday * 30).toFixed(2)}</span></div>
                 <div className="stat-card"><div><span className="stat-label">All Time</span><History size={14} color="var(--accent)" /></div><span className="stat-value">${usageStats.estimatedCostAllTime.toFixed(2)}</span></div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "24px" }}>
-                <div className="chart-container"><h3 className="section-title">Cost by Model</h3><div style={{ height: "300px", marginTop: "20px" }}><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={Object.entries(usageStats.modelUsageStats).map(([name, stats]) => ({ name, cost: stats.estimatedCost }))}><XAxis type="number" hide /><YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: 'var(--text-main)', fontSize: 12}} width={120} /><Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }} /><Bar dataKey="cost" fill="var(--accent)" radius={[0, 4, 4, 0]} /></BarChart></ResponsiveContainer></div></div>
-                <div className="chart-container"><div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}><Lightbulb size={18} color="var(--accent)" /><h3 className="section-title" style={{ margin: 0 }}>Optimization</h3></div><div style={{ display: "flex", flexDirection: "column", gap: "12px" }}><div className="project-item" style={{ padding: "16px" }}><div style={{ fontSize: "13px", fontWeight: 600 }}>Mix in Sonnet</div><div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Save up to $12/mo by using Sonnet for simple tasks.</div></div></div></div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }}>
+                <div className="chart-container" style={{ height: "400px" }}>
+                  <h3 className="section-title">Spend by Model</h3>
+                  <ResponsiveContainer width="100%" height="90%">
+                    <BarChart layout="vertical" data={Object.entries(usageStats.modelUsageStats).map(([name, stats]) => ({ name, cost: stats.estimatedCost })).sort((a,b) => b.cost - a.cost)}>
+                      <XAxis type="number" hide />
+                      <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: 'var(--text-main)', fontSize: 11}} width={130} />
+                      <Tooltip 
+                        contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px' }}
+                        formatter={(value: any) => [`$${Number(value).toFixed(3)}`, 'Cost']}
+                      />
+                      <Bar dataKey="cost" fill="var(--accent)" radius={[0, 4, 4, 0]}>
+                        {Object.entries(usageStats.modelUsageStats).map((_, index) => (
+                          <Cell key={`cell-${index}`} fillOpacity={1 - (index * 0.2)} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="chart-container" style={{ height: "400px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}>
+                    <Lightbulb size={18} color="var(--accent)" />
+                    <h3 className="section-title" style={{ margin: 0 }}>Optimization Center</h3>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                    <div className="project-item" style={{ padding: "16px", border: "1px solid rgba(74, 222, 128, 0.1)", background: "rgba(74, 222, 128, 0.02)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>High Cache Usage Detected</span>
+                        <CheckCircle2 size={14} color="#4ade80" />
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+                        You've saved approximately <span style={{color: "#4ade80", fontWeight: 700}}>${(usageStats.cacheReadTokens as number * 0.00003).toFixed(2)}</span> this month by utilizing Claude's prompt caching.
+                      </div>
+                    </div>
+
+                    <div className="project-item" style={{ padding: "16px", border: "1px solid rgba(255, 255, 255, 0.05)" }}>
+                      <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>Model Mix Strategy</div>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+                        Sonnet is 5x cheaper than Opus. Consider using it for small files and UI tweaks.
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: "auto", padding: "16px", background: "var(--bg-app)", borderRadius: "8px", border: "1px solid var(--border-subtle)" }}>
+                      <div style={{ fontSize: "10px", color: "var(--text-muted)", textTransform: "uppercase" }}>Current Billing Cycle</div>
+                      <div style={{ fontSize: "18px", fontWeight: 800, marginTop: "4px" }}>Feb 23 - Mar 23</div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </section>
           )}

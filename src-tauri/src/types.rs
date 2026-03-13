@@ -111,6 +111,36 @@ pub struct UsageStats {
     pub estimated_cost_all_time: f64,
     pub model_usage_stats: HashMap<String, ModelUsage>,
     pub common_sequences: Vec<ToolSequence>,
+    pub total_tokens: usize,
+    pub cache_read_tokens: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClaudePricing {
+    pub models: HashMap<String, ModelPricing>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelPricing {
+    pub input: f64,
+    pub output: f64,
+    pub cache_read: f64,
+    pub cache_write: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClaudeCostCache {
+    pub days: HashMap<String, HashMap<String, TokenUsage>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUsage {
+    pub input: usize,
+    pub output: usize,
+    pub cache_read: usize,
+    pub cache_write: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

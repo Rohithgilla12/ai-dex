@@ -364,6 +364,8 @@ pub fn get_marketplace_servers() -> Vec<MarketplaceServer> {
 pub fn get_usage_stats() -> UsageStats {
     let home = get_home_path();
     let history_path = home.join(".claude/history.jsonl");
+    let pricing_path = home.join(".claude/readout-pricing.json");
+    let cache_path = home.join(".claude/readout-cost-cache.json");
     
     let mut daily_counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut hourly_counts = vec![0; 24];
@@ -371,21 +373,66 @@ pub fn get_usage_stats() -> UsageStats {
     let mut total_prompt_chars = 0;
     let mut total_messages = 0;
     let mut command_count = 0;
+    let mut sequence_map: HashMap<String, usize> = HashMap::new();
+    let mut last_tool: Option<String> = None;
+
+    // Load Real Pricing and Cache
+    let pricing: Option<ClaudePricing> = fs::read_to_string(&pricing_path).ok().and_then(|c| serde_json::from_str(&c).ok());
+    let cost_cache: Option<ClaudeCostCache> = fs::read_to_string(&cache_path).ok().and_then(|c| serde_json::from_str(&c).ok());
 
     let mut cost_today = 0.0;
     let mut cost_week = 0.0;
     let mut cost_all_time = 0.0;
-    let mut model_stats: HashMap<String, ModelUsage> = HashMap::new();
-    let mut sequence_map: HashMap<String, usize> = HashMap::new();
-    let mut last_tool: Option<String> = None;
+    let mut total_tokens = 0;
+    let mut total_cache_read = 0;
+    let mut model_usage_agg: HashMap<String, ModelUsage> = HashMap::new();
 
     let now = Utc::now();
     let today_str = now.format("%Y-%m-%d").to_string();
     let week_ago = now - chrono::Duration::days(7);
 
-    let opus_price = 0.075;
-    let sonnet_price = 0.015;
-    let codex_price = 0.010;
+    if let Some(cache) = cost_cache {
+        for (date_str, models) in cache.days {
+            let dt_opt = Utc.with_ymd_and_hms(
+                date_str[0..4].parse().unwrap_or(2026),
+                date_str[5..7].parse().unwrap_or(1),
+                date_str[8..10].parse().unwrap_or(1),
+                0, 0, 0
+            ).single();
+
+            for (model_id, usage) in models {
+                let display_name = if model_id.contains("opus") { "Claude 3 Opus" }
+                                  else if model_id.contains("sonnet") { "Claude 3.5 Sonnet" }
+                                  else if model_id.contains("haiku") { "Claude 3 Haiku" }
+                                  else { &model_id };
+
+                let (in_rate, out_rate, cr_rate, cw_rate) = if let Some(ref p) = pricing {
+                    let key = if model_id.contains("opus-4-6") { "opus-4-6" }
+                             else if model_id.contains("opus-4-5") { "opus-4-5" }
+                             else if model_id.contains("sonnet") { "sonnet-4-5" }
+                             else { "haiku-4-5" };
+                    let m = p.models.get(key);
+                    (m.map(|x| x.input).unwrap_or(0.0) / 1_000_000.0,
+                     m.map(|x| x.output).unwrap_or(0.0) / 1_000_000.0,
+                     m.map(|x| x.cache_read).unwrap_or(0.0) / 1_000_000.0,
+                     m.map(|x| x.cache_write).unwrap_or(0.0) / 1_000_000.0)
+                } else { (0.000015, 0.000075, 0.0000015, 0.00001875) };
+
+                let cost = (usage.input as f64 * in_rate) + (usage.output as f64 * out_rate) +
+                           (usage.cache_read as f64 * cr_rate) + (usage.cache_write as f64 * cw_rate);
+
+                cost_all_time += cost;
+                total_tokens += usage.input + usage.output + usage.cache_read + usage.cache_write;
+                total_cache_read += usage.cache_read;
+                if date_str == today_str { cost_today += cost; }
+                if let Some(d) = dt_opt { if d > week_ago { cost_week += cost; } }
+
+                let stats = model_usage_agg.entry(display_name.to_string()).or_insert(ModelUsage { message_count: 0, estimated_tokens: 0, estimated_cost: 0.0 });
+                stats.estimated_cost += cost;
+                stats.estimated_tokens += usage.input + usage.output;
+            }
+        }
+    }
 
     if history_path.exists() {
         if let Ok(content) = fs::read_to_string(history_path) {
@@ -395,44 +442,25 @@ pub fn get_usage_stats() -> UsageStats {
                         let dt = Utc.timestamp_opt(ts / 1000, 0).unwrap();
                         let date_str = dt.format("%Y-%m-%d").to_string();
                         let hour = dt.format("%H").to_string().parse::<usize>().unwrap_or(0);
-                        *daily_counts.entry(date_str.clone()).or_insert(0) += 1;
+                        *daily_counts.entry(date_str).or_insert(0) += 1;
                         if hour < 24 { hourly_counts[hour] += 1; }
-
-                        let model_name = if v.get("project").and_then(|p| p.as_str()).unwrap_or("").contains("Codex") { "GPT-5.3 Codex" }
-                                        else if total_messages % 5 == 0 { "Claude 3 Opus" }
-                                        else { "Claude 3.5 Sonnet" }.to_string();
-
-                        let price = if model_name.contains("Opus") { opus_price } else if model_name.contains("Codex") { codex_price } else { sonnet_price };
-                        cost_all_time += price;
-                        if date_str == today_str { cost_today += price; }
-                        if dt > week_ago { cost_week += price; }
-
-                        let stats = model_stats.entry(model_name).or_insert(ModelUsage { message_count: 0, estimated_tokens: 0, estimated_cost: 0.0 });
-                        stats.message_count += 1;
-                        stats.estimated_tokens += 1000;
-                        stats.estimated_cost += price;
                     }
-                    
                     if let Some(display) = v.get("display").and_then(|d| d.as_str()) {
                         let trimmed = display.trim();
                         if !trimmed.is_empty() {
                             total_prompt_chars += trimmed.len();
                             total_messages += 1;
-                            
-                            let current_tool_type = if trimmed.starts_with('/') { trimmed.split_whitespace().next().unwrap_or("/").to_string() }
-                                                   else if trimmed.starts_with('!') { trimmed.split_whitespace().next().unwrap_or("!").to_string() }
-                                                   else { "Chat".to_string() };
-
+                            let tool = if trimmed.starts_with('/') { trimmed.split_whitespace().next().unwrap_or("/") }
+                                      else if trimmed.starts_with('!') { trimmed.split_whitespace().next().unwrap_or("!") }
+                                      else { "Chat" };
                             if let Some(lt) = last_tool {
-                                let seq = format!("{} -> {}", lt, current_tool_type);
+                                let seq = format!("{} -> {}", lt, tool);
                                 *sequence_map.entry(seq).or_insert(0) += 1;
                             }
-                            last_tool = Some(current_tool_type);
-
+                            last_tool = Some(tool.to_string());
                             if trimmed.starts_with('!') || trimmed.starts_with('/') { command_count += 1; }
                         }
                     }
-
                     if let Some(proj) = v.get("project").and_then(|p| p.as_str()) {
                         let name = proj.split('/').last().unwrap_or("unknown").to_string();
                         *project_counts.entry(name).or_insert(0) += 1;
@@ -452,16 +480,15 @@ pub fn get_usage_stats() -> UsageStats {
     common_sequences.truncate(8);
 
     let dex = get_dex_data();
-    let total_skills = dex.tools.iter().map(|t| t.skills.len()).sum::<usize>() + dex.repos.iter().map(|r| r.skills.len()).sum::<usize>();
     let mut skill_distribution = HashMap::new();
     for tool in dex.tools { skill_distribution.insert(tool.name, tool.skills.len()); }
 
     UsageStats {
-        daily_activity, hourly_activity: hourly_counts, total_skills, top_projects, skill_distribution,
-        avg_prompt_length: if total_messages > 0 { total_prompt_chars / total_messages } else { 0 },
+        daily_activity, hourly_activity: hourly_counts, total_skills: dex.tools.iter().map(|t| t.skills.len()).sum::<usize>() + dex.repos.iter().map(|r| r.skills.len()).sum::<usize>(),
+        top_projects, skill_distribution, avg_prompt_length: if total_messages > 0 { total_prompt_chars / total_messages } else { 0 },
         command_ratio: if total_messages > 0 { command_count as f64 / total_messages as f64 } else { 0.0 },
         estimated_cost_today: cost_today, estimated_cost_week: cost_week, estimated_cost_all_time: cost_all_time,
-        model_usage_stats: model_stats, common_sequences
+        model_usage_stats: model_usage_agg, common_sequences, total_tokens, cache_read_tokens: total_cache_read
     }
 }
 
