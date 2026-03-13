@@ -8,7 +8,8 @@ import {
   ViewMode, 
   GlobalSkillSearchResult, 
   MarketplaceServer,
-  DiagnosticResult
+  DiagnosticResult,
+  MemoryEntry
 } from "./types";
 import { 
   AreaChart, 
@@ -41,12 +42,15 @@ import {
   Lightbulb,
   ShieldAlert,
   Clock,
-  History
+  History,
+  Brain,
+  ChevronRight
 } from "lucide-react";
 
 function App() {
   const [dexData, setDexData] = useState<DexData | null>(null);
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
+  const [memories, setMemories] = useState<MemoryEntry[]>([]);
   const [marketplaceServers, setMarketplaceServers] = useState<MarketplaceServer[]>([]);
   
   const [viewMode, setViewMode] = useState<ViewMode>("dashboard");
@@ -87,6 +91,8 @@ function App() {
       setUsageStats(usage);
       const marketplace: MarketplaceServer[] = await invoke("get_marketplace_servers");
       setMarketplaceServers(marketplace);
+      const mems: MemoryEntry[] = await invoke("get_memories");
+      setMemories(mems);
     } catch (err) { console.error(`Connection Error: ${err}`); }
   };
 
@@ -226,6 +232,11 @@ function App() {
         <div className={`sidebar-item ${viewMode === "costs" ? "active" : ""}`} onClick={() => { setViewMode("costs"); setSearchTerm(""); }}><DollarSign size={16} /> AI Cost Center</div>
         <div className={`sidebar-item ${viewMode === "marketplace" ? "active" : ""}`} onClick={() => { setViewMode("marketplace"); setSearchTerm(""); }}><Store size={16} /> MCP Marketplace</div>
         
+        <div className="sidebar-header" style={{ marginTop: "20px" }}>Workspace</div>
+        <div className={`sidebar-item ${viewMode === "memory" ? "active" : ""}`} onClick={() => { setViewMode("memory"); setSearchTerm(""); }}>
+          <Brain size={16} /> Memory
+        </div>
+
         <div className="sidebar-header" style={{ marginTop: "20px" }}>Core Tools</div>
         {dexData.tools.map((tool, index) => (
           <div key={tool.name} className={`sidebar-item ${viewMode === "tools" && index === selectedIndex ? "active" : ""}`} onClick={() => { setViewMode("tools"); setSelectedIndex(index); setSearchTerm(""); }}><Cpu size={16} /> {tool.name}</div>
@@ -268,9 +279,32 @@ function App() {
                 <div className="stat-card"><div><span className="stat-label">Commands</span><TerminalIcon size={14} color="var(--accent)" /></div><span className="stat-value">{(usageStats.commandRatio * 100).toFixed(0)}%</span></div>
                 <div className="stat-card"><div><span className="stat-label">Requests</span><Zap size={14} color="var(--accent)" /></div><span className="stat-value">{totalRequestsInRange}</span></div>
               </div>
+              
               <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "24px", marginBottom: "24px" }}>
                 <div className="chart-container" style={{ height: "350px" }}><h3 className="section-title">Intensity</h3><ResponsiveContainer width="100%" height="85%"><AreaChart data={filteredActivity}><defs><linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--accent)" stopOpacity={0.3}/><stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} /><XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: 'var(--text-muted)', fontSize: 10}} minTickGap={30} /><Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px', fontSize: '12px' }} /><Area type="monotone" dataKey="count" stroke="var(--accent)" strokeWidth={2} fillOpacity={1} fill="url(#colorCount)" animationDuration={1500} /></AreaChart></ResponsiveContainer></div>
                 <div className="chart-container" style={{ height: "350px" }}><h3 className="section-title">Peak Distribution</h3><ResponsiveContainer width="100%" height="85%"><BarChart data={usageStats.hourlyActivity.map((count, hour) => ({ hour: `${hour}h`, count }))}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} /><XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{fill: 'var(--text-muted)', fontSize: 9}} interval={3} /><Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px', fontSize: '12px' }} cursor={{fill: 'rgba(255,255,255,0.05)'}} /><Bar dataKey="count" fill="var(--accent)" radius={[2, 2, 0, 0]} opacity={0.8} /></BarChart></ResponsiveContainer></div>
+              </div>
+
+              {/* Tool Sequences from screenshot */}
+              <div className="chart-container">
+                <h3 className="section-title" style={{ marginBottom: "20px" }}>Common Sequences</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  {usageStats.common_sequences.map((seq, i) => {
+                    const max = Math.max(...usageStats.common_sequences.map(s => s.count), 1);
+                    const percentage = (seq.count / max) * 100;
+                    return (
+                      <div key={i} style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
+                          <span style={{ color: "var(--text-main)", fontWeight: 600 }}>{seq.sequence}</span>
+                          <span style={{ color: "var(--text-muted)" }}>{seq.count}</span>
+                        </div>
+                        <div style={{ height: "12px", width: "100%", background: "rgba(255,255,255,0.03)", borderRadius: "4px", overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${percentage}%`, background: "var(--accent)", borderRadius: "4px", opacity: 0.8 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </section>
           )}
@@ -290,6 +324,51 @@ function App() {
               <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "24px" }}>
                 <div className="chart-container"><h3 className="section-title">Cost by Model</h3><div style={{ height: "300px", marginTop: "20px" }}><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={Object.entries(usageStats.modelUsageStats).map(([name, stats]) => ({ name, cost: stats.estimatedCost }))}><XAxis type="number" hide /><YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: 'var(--text-main)', fontSize: 12}} width={120} /><Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }} /><Bar dataKey="cost" fill="var(--accent)" radius={[0, 4, 4, 0]} /></BarChart></ResponsiveContainer></div></div>
                 <div className="chart-container"><div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "20px" }}><Lightbulb size={18} color="var(--accent)" /><h3 className="section-title" style={{ margin: 0 }}>Optimization</h3></div><div style={{ display: "flex", flexDirection: "column", gap: "12px" }}><div className="project-item" style={{ padding: "16px" }}><div style={{ fontSize: "13px", fontWeight: 600 }}>Mix in Sonnet</div><div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Save up to $12/mo by using Sonnet for simple tasks.</div></div></div></div>
+              </div>
+            </section>
+          )}
+
+          {viewMode === "memory" && (
+            <section className="dashboard-view">
+              <div style={{ marginBottom: "32px" }}>
+                <h2 style={{ fontSize: "28px", fontWeight: 800 }}>Memory</h2>
+                <p style={{ color: "var(--text-muted)", marginTop: "4px" }}>{memories.reduce((acc, m) => acc + m.lineCount, 0)} lines of context across {memories.length} projects.</p>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+                {memories.map((mem, i) => (
+                  <div key={i} className="chart-container" style={{ padding: "0", overflow: "hidden" }}>
+                    <div style={{ 
+                      background: "rgba(255,255,255,0.02)", 
+                      padding: "16px 24px", 
+                      borderBottom: "1px solid var(--border-subtle)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center"
+                    }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{ fontSize: "14px", fontWeight: 700, color: "var(--accent)" }}>{mem.projectName}</span>
+                          <ChevronRight size={14} color="var(--text-muted)" />
+                        </div>
+                        <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>{mem.lineCount} lines · {mem.path}</div>
+                      </div>
+                    </div>
+                    <div style={{ padding: "20px 24px" }}>
+                      <h4 style={{ fontSize: "12px", color: "var(--text-muted)", textTransform: "uppercase", marginBottom: "12px" }}>Project Memory</h4>
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: "12px", color: "#ccc", lineHeight: "1.6" }}>
+                        {mem.contentPreview.map((line, li) => (
+                          <div key={li} style={{ 
+                            whiteSpace: "pre-wrap",
+                            marginBottom: line.startsWith('#') ? "8px" : "2px",
+                            color: line.startsWith('#') ? "var(--text-main)" : line.startsWith('-') ? "#eee" : "#888",
+                            fontWeight: line.startsWith('#') ? 700 : 400
+                          }}>{line}</div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </section>
           )}
@@ -359,7 +438,7 @@ function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--accent)' }}><TerminalIcon size={14} /> {isDebugging ? `Logs: ${isDebugging}` : "Diagnostics"}</div>
                         <button onClick={() => { setIsDebugging(null); setDiagnostics({}); setMcpLogs([]); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)' }}>Close</button>
                       </div>
-                      <div style={{ padding: '16px', maxHeight: '200px', overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
+                      <div style={{ padding: '16px', maxHeight: '250px', overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
                         {isDebugging ? mcpLogs.map((log, i) => <div key={i}>{log}</div>) : Object.entries(diagnostics).map(([n, d]) => <div key={n}>{d.success ? <CheckCircle2 size={12}/> : <XCircle size={12}/>} {n}: {d.message}</div>)}
                       </div>
                     </div>

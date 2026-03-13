@@ -82,6 +82,22 @@ pub struct DiagnosticResult {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MemoryEntry {
+    pub project_name: String,
+    pub path: String,
+    pub line_count: usize,
+    pub content_preview: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolSequence {
+    pub sequence: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UsageStats {
     pub daily_activity: Vec<ActivityPoint>,
     pub hourly_activity: Vec<usize>,
@@ -94,6 +110,7 @@ pub struct UsageStats {
     pub estimated_cost_week: f64,
     pub estimated_cost_all_time: f64,
     pub model_usage_stats: HashMap<String, ModelUsage>,
+    pub common_sequences: Vec<ToolSequence>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

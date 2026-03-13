@@ -48,6 +48,11 @@ export interface ModelUsage {
   estimatedCost: number;
 }
 
+export interface ToolSequence {
+  sequence: string;
+  count: number;
+}
+
 export interface UsageStats {
   dailyActivity: ActivityPoint[];
   hourlyActivity: number[];
@@ -60,6 +65,14 @@ export interface UsageStats {
   estimatedCostWeek: number;
   estimatedCostAll_time: number;
   modelUsageStats: Record<string, ModelUsage>;
+  common_sequences: ToolSequence[];
+}
+
+export interface MemoryEntry {
+  projectName: string;
+  path: string;
+  lineCount: number;
+  contentPreview: string[];
 }
 
 export interface MarketplaceServer {
@@ -83,4 +96,4 @@ export interface DexData {
   repos: RepoInfo[];
 }
 
-export type ViewMode = "dashboard" | "tools" | "repos" | "add_repo" | "global_search" | "create_skill" | "marketplace" | "costs";
+export type ViewMode = "dashboard" | "tools" | "repos" | "add_repo" | "global_search" | "create_skill" | "marketplace" | "costs" | "memory";

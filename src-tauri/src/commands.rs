@@ -376,14 +376,14 @@ pub fn get_usage_stats() -> UsageStats {
     let mut cost_week = 0.0;
     let mut cost_all_time = 0.0;
     let mut model_stats: HashMap<String, ModelUsage> = HashMap::new();
+    let mut sequence_map: HashMap<String, usize> = HashMap::new();
+    let mut last_tool: Option<String> = None;
 
     let now = Utc::now();
     let today_str = now.format("%Y-%m-%d").to_string();
     let week_ago = now - chrono::Duration::days(7);
 
-    // Pricing Heuristics (USD per 1k tokens)
-    // Heuristic: 1 message approx 1000 tokens (including context)
-    let opus_price = 0.075; // Average blended input/output
+    let opus_price = 0.075;
     let sonnet_price = 0.015;
     let codex_price = 0.010;
 
@@ -395,34 +395,22 @@ pub fn get_usage_stats() -> UsageStats {
                         let dt = Utc.timestamp_opt(ts / 1000, 0).unwrap();
                         let date_str = dt.format("%Y-%m-%d").to_string();
                         let hour = dt.format("%H").to_string().parse::<usize>().unwrap_or(0);
-                        
                         *daily_counts.entry(date_str.clone()).or_insert(0) += 1;
                         if hour < 24 { hourly_counts[hour] += 1; }
 
-                        // Model attribution (Heuristic)
-                        let model_name = if v.get("project").and_then(|p| p.as_str()).unwrap_or("").contains("Codex") {
-                            "GPT-5.3 Codex"
-                        } else if total_messages % 5 == 0 {
-                            "Claude 3 Opus"
-                        } else {
-                            "Claude 3.5 Sonnet"
-                        }.to_string();
+                        let model_name = if v.get("project").and_then(|p| p.as_str()).unwrap_or("").contains("Codex") { "GPT-5.3 Codex" }
+                                        else if total_messages % 5 == 0 { "Claude 3 Opus" }
+                                        else { "Claude 3.5 Sonnet" }.to_string();
 
                         let price = if model_name.contains("Opus") { opus_price } else if model_name.contains("Codex") { codex_price } else { sonnet_price };
-                        let msg_cost = price; // $ price per msg heuristic
+                        cost_all_time += price;
+                        if date_str == today_str { cost_today += price; }
+                        if dt > week_ago { cost_week += price; }
 
-                        cost_all_time += msg_cost;
-                        if date_str == today_str { cost_today += msg_cost; }
-                        if dt > week_ago { cost_week += msg_cost; }
-
-                        let stats = model_stats.entry(model_name).or_insert(ModelUsage {
-                            message_count: 0,
-                            estimated_tokens: 0,
-                            estimated_cost: 0.0,
-                        });
+                        let stats = model_stats.entry(model_name).or_insert(ModelUsage { message_count: 0, estimated_tokens: 0, estimated_cost: 0.0 });
                         stats.message_count += 1;
                         stats.estimated_tokens += 1000;
-                        stats.estimated_cost += msg_cost;
+                        stats.estimated_cost += price;
                     }
                     
                     if let Some(display) = v.get("display").and_then(|d| d.as_str()) {
@@ -430,6 +418,17 @@ pub fn get_usage_stats() -> UsageStats {
                         if !trimmed.is_empty() {
                             total_prompt_chars += trimmed.len();
                             total_messages += 1;
+                            
+                            let current_tool_type = if trimmed.starts_with('/') { trimmed.split_whitespace().next().unwrap_or("/").to_string() }
+                                                   else if trimmed.starts_with('!') { trimmed.split_whitespace().next().unwrap_or("!").to_string() }
+                                                   else { "Chat".to_string() };
+
+                            if let Some(lt) = last_tool {
+                                let seq = format!("{} -> {}", lt, current_tool_type);
+                                *sequence_map.entry(seq).or_insert(0) += 1;
+                            }
+                            last_tool = Some(current_tool_type);
+
                             if trimmed.starts_with('!') || trimmed.starts_with('/') { command_count += 1; }
                         }
                     }
@@ -448,29 +447,74 @@ pub fn get_usage_stats() -> UsageStats {
     top_projects.sort_by(|a, b| b.count.cmp(&a.count));
     top_projects.truncate(5);
 
-    let dex = get_dex_data();
-    let total_skills = dex.tools.iter().map(|t| t.skills.len()).sum::<usize>() + 
-                       dex.repos.iter().map(|r| r.skills.len()).sum::<usize>();
+    let mut common_sequences: Vec<ToolSequence> = sequence_map.into_iter().map(|(sequence, count)| ToolSequence { sequence, count }).collect();
+    common_sequences.sort_by(|a, b| b.count.cmp(&a.count));
+    common_sequences.truncate(8);
 
+    let dex = get_dex_data();
+    let total_skills = dex.tools.iter().map(|t| t.skills.len()).sum::<usize>() + dex.repos.iter().map(|r| r.skills.len()).sum::<usize>();
     let mut skill_distribution = HashMap::new();
     for tool in dex.tools { skill_distribution.insert(tool.name, tool.skills.len()); }
 
-    let avg_prompt_length = if total_messages > 0 { total_prompt_chars / total_messages } else { 0 };
-    let command_ratio = if total_messages > 0 { command_count as f64 / total_messages as f64 } else { 0.0 };
-
     UsageStats {
-        daily_activity,
-        hourly_activity: hourly_counts,
-        total_skills,
-        top_projects,
-        skill_distribution,
-        avg_prompt_length,
-        command_ratio,
-        estimated_cost_today: cost_today,
-        estimated_cost_week: cost_week,
-        estimated_cost_all_time: cost_all_time,
-        model_usage_stats: model_stats,
+        daily_activity, hourly_activity: hourly_counts, total_skills, top_projects, skill_distribution,
+        avg_prompt_length: if total_messages > 0 { total_prompt_chars / total_messages } else { 0 },
+        command_ratio: if total_messages > 0 { command_count as f64 / total_messages as f64 } else { 0.0 },
+        estimated_cost_today: cost_today, estimated_cost_week: cost_week, estimated_cost_all_time: cost_all_time,
+        model_usage_stats: model_stats, common_sequences
     }
+}
+
+#[tauri::command]
+pub fn get_memories() -> Vec<MemoryEntry> {
+    let home = get_home_path();
+    let mut memories = Vec::new();
+    
+    // 1. Global Memory
+    let global_memory_path = home.join(".gemini/GEMINI.md");
+    if global_memory_path.exists() {
+        if let Ok(content) = fs::read_to_string(&global_memory_path) {
+            let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+            memories.push(MemoryEntry {
+                project_name: "Global Memory".into(),
+                path: global_memory_path.to_string_lossy().to_string(),
+                line_count: lines.len(),
+                content_preview: lines.iter().take(10).cloned().collect(),
+            });
+        }
+    }
+
+    // 2. Scan project folders from history
+    let history_path = home.join(".claude/history.jsonl");
+    let mut seen_projects = HashMap::new();
+    if history_path.exists() {
+        if let Ok(content) = fs::read_to_string(history_path) {
+            for line in content.lines() {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                    if let Some(proj_path) = v.get("project").and_then(|p| p.as_str()) {
+                        seen_projects.insert(proj_path.to_string(), true);
+                    }
+                }
+            }
+        }
+    }
+
+    for (proj_path, _) in seen_projects {
+        let mem_file = std::path::Path::new(&proj_path).join("GEMINI.md");
+        if mem_file.exists() {
+            if let Ok(content) = fs::read_to_string(&mem_file) {
+                let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                memories.push(MemoryEntry {
+                    project_name: proj_path.split('/').last().unwrap_or("Unknown").to_string(),
+                    path: proj_path,
+                    line_count: lines.len(),
+                    content_preview: lines.iter().take(10).cloned().collect(),
+                });
+            }
+        }
+    }
+
+    memories
 }
 
 #[tauri::command]
@@ -499,9 +543,7 @@ pub fn sync_mcp_to_all_tools(name: String, config: McpServerConfig) -> Result<St
     if claude_path.exists() {
         if let Ok(content) = fs::read_to_string(&claude_path) {
             if let Ok(mut json_val) = serde_json::from_str::<serde_json::Value>(&content) {
-                if !json_val.get("mcpServers").is_some() {
-                    json_val.as_object_mut().unwrap().insert("mcpServers".to_string(), serde_json::json!({}));
-                }
+                if !json_val.get("mcpServers").is_some() { json_val.as_object_mut().unwrap().insert("mcpServers".to_string(), serde_json::json!({})); }
                 let mcp_servers = json_val.get_mut("mcpServers").unwrap().as_object_mut().unwrap();
                 mcp_servers.insert(name.clone(), serde_json::to_value(&config).unwrap());
                 let updated_content = serde_json::to_string_pretty(&json_val).unwrap();

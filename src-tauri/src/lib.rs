@@ -22,7 +22,8 @@ pub fn run() {
             sync_mcp_to_all_tools,
             get_usage_stats,
             get_marketplace_servers,
-            spawn_mcp_and_stream_logs
+            spawn_mcp_and_stream_logs,
+            get_memories
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
