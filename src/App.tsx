@@ -9,6 +9,25 @@ import {
   McpServerConfig,
   ProjectActivity
 } from "./types";
+import { 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer
+} from "recharts";
+import { 
+  Activity, 
+  Layers, 
+  Cpu, 
+  Target, 
+  RefreshCw, 
+  Plus, 
+  Search, 
+  History
+} from "lucide-react";
 
 function App() {
   const [dexData, setDexData] = useState<DexData | null>(null);
@@ -17,6 +36,7 @@ function App() {
   // Navigation State
   const [viewMode, setViewMode] = useState<ViewMode>("dashboard");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [timeRange, setTimeRange] = useState<"7d" | "30d" | "all">("30d");
   
   // Editor State
   const [editingContent, setEditingContent] = useState("");
@@ -102,6 +122,19 @@ function App() {
       name.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [currentTool, searchTerm]);
+
+  // Filtered Daily Activity based on timeRange
+  const filteredActivity = useMemo(() => {
+    if (!usageStats) return [];
+    const data = usageStats.dailyActivity;
+    if (timeRange === "7d") return data.slice(-7);
+    if (timeRange === "30d") return data.slice(-30);
+    return data;
+  }, [usageStats, timeRange]);
+
+  const totalRequestsInRange = useMemo(() => {
+    return filteredActivity.reduce((acc, curr) => acc + curr.count, 0);
+  }, [filteredActivity]);
 
   const handleSave = async () => {
     if (!currentTool || !currentTool.configPath) return;
@@ -311,7 +344,7 @@ function App() {
           className={`sidebar-item ${viewMode === "dashboard" ? "active" : ""}`}
           onClick={() => { setViewMode("dashboard"); setSearchTerm(""); }}
         >
-          <div className="sidebar-item-icon" style={{ background: "var(--accent)" }} />
+          <Activity size={16} />
           Usage Dashboard
         </div>
 
@@ -323,7 +356,7 @@ function App() {
             className={`sidebar-item ${viewMode === "tools" && index === selectedIndex ? "active" : ""}`}
             onClick={() => { setViewMode("tools"); setSelectedIndex(index); setSearchTerm(""); }}
           >
-            <div className="sidebar-item-icon" />
+            <Cpu size={16} />
             {tool.name}
           </div>
         ))}
@@ -336,7 +369,7 @@ function App() {
             className={`sidebar-item ${viewMode === "repos" && index === selectedIndex ? "active" : ""}`}
             onClick={() => { setViewMode("repos"); setSelectedIndex(index); setSearchTerm(""); }}
           >
-            <div className="sidebar-item-icon" />
+            <Layers size={16} />
             {repo.name}
           </div>
         ))}
@@ -344,7 +377,8 @@ function App() {
           className={`sidebar-item sidebar-item-add ${viewMode === "add_repo" ? "active" : ""}`}
           onClick={() => { setViewMode("add_repo"); setSearchTerm(""); setError(""); setStatus(""); }}
         >
-          + Add Repository
+          <Plus size={16} />
+          Add Repository
         </div>
 
         <div className="sidebar-header" style={{ marginTop: "20px" }}>Create</div>
@@ -353,7 +387,8 @@ function App() {
           onClick={() => { setViewMode("create_skill"); setSearchTerm(""); setError(""); setStatus(""); }}
           style={{ borderColor: "var(--text-main)", color: "var(--text-main)" }}
         >
-          + Create Skill
+          <Target size={16} />
+          Create Skill
         </div>
 
         {/* Global Search */}
@@ -362,7 +397,7 @@ function App() {
           className={`sidebar-item ${viewMode === "global_search" ? "active" : ""}`}
           onClick={() => { setViewMode("global_search"); setSearchTerm(""); setError(""); setStatus(""); }}
         >
-          <div className="sidebar-item-icon" style={{ background: "var(--accent)" }} />
+          <Search size={16} />
           Find Skills
         </div>
 
@@ -415,7 +450,20 @@ function App() {
                   <h2 style={{ fontSize: "28px", fontWeight: 800, letterSpacing: "-0.02em" }}>AI Ecosystem Insights</h2>
                   <p style={{ color: "var(--text-muted)", marginTop: "4px" }}>Performance and activity overview across your local agents.</p>
                 </div>
-                <button className="btn-modern" onClick={fetchData} style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)", color: "var(--text-main)" }}>Refresh Data</button>
+                
+                <div style={{ display: "flex", gap: "8px", background: "var(--bg-card)", padding: "4px", borderRadius: "8px", border: "1px solid var(--border-subtle)" }}>
+                  {(["7d", "30d", "all"] as const).map(range => (
+                    <button 
+                      key={range}
+                      onClick={() => setTimeRange(range)}
+                      className={`mcp-action-btn ${timeRange === range ? "sync" : ""}`}
+                      style={{ padding: "6px 12px", textTransform: "uppercase" }}
+                    >
+                      {range === "all" ? "All Time" : range}
+                    </button>
+                  ))}
+                  <button className="mcp-action-btn test" onClick={fetchData} style={{ padding: "6px" }}><RefreshCw size={14} /></button>
+                </div>
               </div>
 
               <div className="dashboard-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "20px", marginBottom: "32px" }}>
@@ -425,11 +473,11 @@ function App() {
                 </div>
                 <div className="stat-card">
                   <span className="stat-label">Active Days</span>
-                  <span className="stat-value">{usageStats.dailyActivity.length}</span>
+                  <span className="stat-value">{filteredActivity.length}</span>
                 </div>
                 <div className="stat-card">
-                  <span className="stat-label">Total Requests</span>
-                  <span className="stat-value">{usageStats.dailyActivity.reduce((acc, curr) => acc + curr.count, 0)}</span>
+                  <span className="stat-label">Requests</span>
+                  <span className="stat-value">{totalRequestsInRange}</span>
                 </div>
                 <div className="stat-card">
                   <span className="stat-label">Top Tool</span>
@@ -440,82 +488,99 @@ function App() {
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "24px", marginBottom: "24px" }}>
-                <div className="chart-container">
-                  <h3 className="section-title" style={{ marginTop: 0 }}>Activity Intensity</h3>
-                  <div style={{ height: "200px", width: "100%", position: "relative", marginTop: "24px" }}>
-                    <svg width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 100 100">
+                <div className="chart-container" style={{ height: "350px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                    <h3 className="section-title" style={{ margin: 0 }}>Activity Intensity</h3>
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px" }}><History size={12}/> {timeRange === "all" ? "Total History" : `Last ${timeRange}`}</div>
+                  </div>
+                  
+                  <ResponsiveContainer width="100%" height="85%">
+                    <AreaChart data={filteredActivity}>
                       <defs>
-                        <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.3" />
-                          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+                        <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/>
                         </linearGradient>
                       </defs>
-                      {/* Area Chart */}
-                      <path
-                        d={`M 0 100 ${usageStats.dailyActivity.slice(-20).map((d, i, arr) => {
-                          const max = Math.max(...usageStats.dailyActivity.map(x => x.count), 1);
-                          const x = (i / (arr.length - 1)) * 100;
-                          const y = 100 - (d.count / max) * 80;
-                          return `L ${x} ${y}`;
-                        }).join(" ")} L 100 100 Z`}
-                        fill="url(#areaGradient)"
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis 
+                        dataKey="date" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{fill: 'var(--text-muted)', fontSize: 10}} 
+                        minTickGap={30}
                       />
-                      {/* Line */}
-                      <path
-                        d={`M 0 ${100 - (usageStats.dailyActivity.slice(-20)[0]?.count / Math.max(...usageStats.dailyActivity.map(x => x.count), 1) * 80 || 100)} ${usageStats.dailyActivity.slice(-20).map((d, i, arr) => {
-                          const max = Math.max(...usageStats.dailyActivity.map(x => x.count), 1);
-                          const x = (i / (arr.length - 1)) * 100;
-                          const y = 100 - (d.count / max) * 80;
-                          return `L ${x} ${y}`;
-                        }).join(" ")}`}
-                        fill="none"
-                        stroke="var(--accent)"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                      <YAxis 
+                        hide={true} 
+                        domain={['auto', 'auto']} 
                       />
-                    </svg>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px" }}>
-                      <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>{usageStats.dailyActivity.slice(-20)[0]?.date}</span>
-                      <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>Today</span>
-                    </div>
-                  </div>
+                      <Tooltip 
+                        contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px', fontSize: '12px' }}
+                        itemStyle={{ color: 'var(--accent)' }}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="count" 
+                        stroke="var(--accent)" 
+                        strokeWidth={2}
+                        fillOpacity={1} 
+                        fill="url(#colorCount)" 
+                        animationDuration={1500}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
                 </div>
 
-                <div className="chart-container">
-                  <h3 className="section-title" style={{ marginTop: 0 }}>Skill Distribution</h3>
+                <div className="chart-container" style={{ height: "350px" }}>
+                  <h3 className="section-title" style={{ marginTop: 0 }}>Tool Distribution</h3>
                   <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "20px" }}>
                     {Object.entries(usageStats.skillDistribution).map(([name, count]) => {
                       const max = Math.max(...Object.values(usageStats.skillDistribution), 1);
                       const percentage = (count / max) * 100;
                       return (
-                        <div key={name} style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-                            <span style={{ color: "var(--text-main)", fontWeight: 500 }}>{name}</span>
-                            <span style={{ color: "var(--text-muted)" }}>{count} skills</span>
+                        <div key={name} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
+                            <span style={{ color: "var(--text-main)", fontWeight: 600 }}>{name}</span>
+                            <span style={{ color: "var(--accent)", fontWeight: 700 }}>{count}</span>
                           </div>
-                          <div style={{ height: "6px", width: "100%", background: "rgba(255,255,255,0.03)", borderRadius: "10px", overflow: "hidden" }}>
-                            <div style={{ height: "100%", width: `${percentage}%`, background: "var(--accent)", borderRadius: "10px", transition: "width 1s ease-out" }} />
+                          <div style={{ height: "8px", width: "100%", background: "rgba(255,255,255,0.03)", borderRadius: "10px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.05)" }}>
+                            <div style={{ height: "100%", width: `${percentage}%`, background: "var(--accent)", borderRadius: "10px", transition: "width 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)" }} />
                           </div>
                         </div>
                       );
                     })}
                   </div>
+                  
+                  <div style={{ marginTop: "auto", paddingTop: "20px", borderTop: "1px solid var(--border-subtle)", display: "flex", justifyContent: "center" }}>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: "10px", color: "var(--text-muted)", textTransform: "uppercase" }}>Average Capability</div>
+                      <div style={{ fontSize: "20px", fontWeight: 800, color: "var(--text-main)" }}>{(usageStats.totalSkills / Object.keys(usageStats.skillDistribution).length).toFixed(1)} <span style={{fontSize: "12px", color: "var(--text-muted)"}}>skills/tool</span></div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div className="chart-container">
-                <h3 className="section-title" style={{ marginTop: 0 }}>Top Active Projects</h3>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px", marginTop: "16px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                  <h3 className="section-title" style={{ margin: 0 }}>Top Active Projects</h3>
+                  <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Based on interaction volume</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px" }}>
                   {usageStats.topProjects.map((proj: ProjectActivity, i: number) => (
-                    <div key={proj.name} className="project-item">
+                    <div key={proj.name} className="project-item" style={{ border: "1px solid transparent", transition: "all 0.2s" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        <div style={{ width: "24px", height: "24px", borderRadius: "6px", background: "var(--accent-glow)", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 800 }}>
+                        <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: "var(--accent-glow)", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 800 }}>
                           {i + 1}
                         </div>
-                        <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)" }}>{proj.name}</span>
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-main)" }}>{proj.name}</span>
+                          <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>Active Directory</span>
+                        </div>
                       </div>
-                      <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--accent)" }}>{proj.count} reqs</span>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: "14px", fontWeight: 800, color: "var(--text-main)" }}>{proj.count}</div>
+                        <div style={{ fontSize: "9px", color: "var(--accent)", textTransform: "uppercase", fontWeight: 700 }}>Requests</div>
+                      </div>
                     </div>
                   ))}
                 </div>
