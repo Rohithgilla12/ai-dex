@@ -65,7 +65,7 @@ export interface UsageStats {
   estimatedCostWeek: number;
   estimatedCostAll_time: number;
   modelUsageStats: Record<string, ModelUsage>;
-  common_sequences: ToolSequence[];
+  commonSequences: ToolSequence[];
 }
 
 export interface MemoryEntry {

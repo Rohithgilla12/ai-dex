@@ -289,8 +289,8 @@ function App() {
               <div className="chart-container">
                 <h3 className="section-title" style={{ marginBottom: "20px" }}>Common Sequences</h3>
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                  {usageStats.common_sequences.map((seq, i) => {
-                    const max = Math.max(...usageStats.common_sequences.map(s => s.count), 1);
+                  {usageStats.commonSequences.map((seq, i) => {
+                    const max = Math.max(...usageStats.commonSequences.map(s => s.count), 1);
                     const percentage = (seq.count / max) * 100;
                     return (
                       <div key={i} style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
