@@ -28,7 +28,7 @@ pub fn get_dex_data() -> DexData {
     });
 
     // 2. Claude Desktop (MCP)
-    let claude_desktop_path = home.join("Library/Application Support/Claude/claude_desktop_config.json");
+    let claude_desktop_path = get_claude_desktop_dir().join("claude_desktop_config.json");
     let mut claude_mcp = None;
     let mut claude_desktop_content = None;
     let mut claude_schema = None;
@@ -41,7 +41,7 @@ pub fn get_dex_data() -> DexData {
             }
         }
     }
-    let claude_desktop_skills_path = home.join("Library/Application Support/Claude/Claude Extensions");
+    let claude_desktop_skills_path = get_claude_desktop_dir().join("Claude Extensions");
     let claude_desktop_skills = scan_for_skills(&claude_desktop_skills_path);
 
     tools.push(ToolInfo {
@@ -57,10 +57,15 @@ pub fn get_dex_data() -> DexData {
     let claude_code_settings = home.join(".claude/settings.json");
     let mut claude_code_content = None;
     let mut claude_code_schema = None;
+    let mut claude_code_mcp = None;
     if claude_code_settings.exists() {
         if let Ok(content) = fs::read_to_string(&claude_code_settings) {
             claude_code_content = Some(content.clone());
             claude_code_schema = try_fetch_schema(&content);
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                claude_code_mcp = val.get("mcpServers")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+            }
         }
     }
     let claude_code_skills_path = home.join(".claude/skills");
@@ -71,7 +76,7 @@ pub fn get_dex_data() -> DexData {
         config_path: Some(claude_code_settings.to_string_lossy().to_string()),
         config_content: claude_code_content,
         schema_content: claude_code_schema,
-        mcp_servers: claude_mcp, // Claude Code uses the same MCP config
+        mcp_servers: claude_code_mcp,
         skills: claude_code_skills,
     });
 
@@ -524,21 +529,24 @@ pub fn get_memories() -> Vec<MemoryEntry> {
     let home = get_home_path();
     let mut memories = Vec::new();
     
-    // 1. Global Memory
-    let global_memory_path = home.join(".gemini/GEMINI.md");
-    if global_memory_path.exists() {
-        if let Ok(content) = fs::read_to_string(&global_memory_path) {
-            let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-            memories.push(MemoryEntry {
-                project_name: "Global Memory".into(),
-                path: global_memory_path.to_string_lossy().to_string(),
-                line_count: lines.len(),
-                content_preview: lines.iter().take(10).cloned().collect(),
-            });
+    let global_memory_files = [
+        ("Gemini Global Memory", home.join(".gemini/GEMINI.md")),
+        ("Claude Global Memory", home.join(".claude/CLAUDE.md")),
+    ];
+    for (label, path) in global_memory_files {
+        if path.exists() {
+            if let Ok(content) = fs::read_to_string(&path) {
+                let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                memories.push(MemoryEntry {
+                    project_name: label.into(),
+                    path: path.to_string_lossy().to_string(),
+                    line_count: lines.len(),
+                    content_preview: lines.iter().take(10).cloned().collect(),
+                });
+            }
         }
     }
 
-    // 2. Scan project folders from history
     let history_path = home.join(".claude/history.jsonl");
     let mut seen_projects = HashMap::new();
     if history_path.exists() {
@@ -553,17 +561,20 @@ pub fn get_memories() -> Vec<MemoryEntry> {
         }
     }
 
+    let project_memory_files = ["CLAUDE.md", "GEMINI.md"];
     for (proj_path, _) in seen_projects {
-        let mem_file = std::path::Path::new(&proj_path).join("GEMINI.md");
-        if mem_file.exists() {
-            if let Ok(content) = fs::read_to_string(&mem_file) {
-                let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-                memories.push(MemoryEntry {
-                    project_name: proj_path.split('/').last().unwrap_or("Unknown").to_string(),
-                    path: proj_path,
-                    line_count: lines.len(),
-                    content_preview: lines.iter().take(10).cloned().collect(),
-                });
+        for filename in &project_memory_files {
+            let mem_file = std::path::Path::new(&proj_path).join(filename);
+            if mem_file.exists() {
+                if let Ok(content) = fs::read_to_string(&mem_file) {
+                    let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                    memories.push(MemoryEntry {
+                        project_name: format!("{} ({})", proj_path.split('/').last().unwrap_or("Unknown"), filename),
+                        path: mem_file.to_string_lossy().to_string(),
+                        line_count: lines.len(),
+                        content_preview: lines.iter().take(10).cloned().collect(),
+                    });
+                }
             }
         }
     }
@@ -574,8 +585,8 @@ pub fn get_memories() -> Vec<MemoryEntry> {
 #[tauri::command]
 pub async fn spawn_mcp_and_stream_logs(app: AppHandle, command: String, args: Vec<String>) -> Result<(), String> {
     let mut child = TokioCommand::new(command).args(args).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
+    let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+    let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
     let app_stdout = app.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
@@ -593,15 +604,23 @@ pub async fn spawn_mcp_and_stream_logs(app: AppHandle, command: String, args: Ve
 pub fn sync_mcp_to_all_tools(name: String, config: McpServerConfig) -> Result<String, String> {
     let home = get_home_path();
     let mut updated_tools = Vec::new();
-    let claude_path = home.join("Library/Application Support/Claude/claude_desktop_config.json");
-    if claude_path.exists() {
-        if let Ok(content) = fs::read_to_string(&claude_path) {
-            if let Ok(mut json_val) = serde_json::from_str::<serde_json::Value>(&content) {
-                if !json_val.get("mcpServers").is_some() { json_val.as_object_mut().unwrap().insert("mcpServers".to_string(), serde_json::json!({})); }
-                let mcp_servers = json_val.get_mut("mcpServers").unwrap().as_object_mut().unwrap();
-                mcp_servers.insert(name.clone(), serde_json::to_value(&config).unwrap());
-                let updated_content = serde_json::to_string_pretty(&json_val).unwrap();
-                if let Ok(_) = fs::write(&claude_path, updated_content) { updated_tools.push("Claude Desktop"); }
+    let config_val = serde_json::to_value(&config).map_err(|e| e.to_string())?;
+
+    let targets: Vec<(&str, std::path::PathBuf)> = vec![
+        ("Claude Desktop", get_claude_desktop_dir().join("claude_desktop_config.json")),
+        ("Claude Code", home.join(".claude/settings.json")),
+    ];
+
+    for (tool_name, path) in targets {
+        if !path.exists() { continue; }
+        let content = match fs::read_to_string(&path) { Ok(c) => c, Err(_) => continue };
+        let mut json_val: serde_json::Value = match serde_json::from_str(&content) { Ok(v) => v, Err(_) => continue };
+        let obj = match json_val.as_object_mut() { Some(o) => o, None => continue };
+        obj.entry("mcpServers").or_insert(serde_json::json!({}));
+        if let Some(servers) = obj.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
+            servers.insert(name.clone(), config_val.clone());
+            if let Ok(updated) = serde_json::to_string_pretty(&json_val) {
+                if fs::write(&path, updated).is_ok() { updated_tools.push(tool_name); }
             }
         }
     }
