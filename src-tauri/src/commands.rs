@@ -401,22 +401,48 @@ pub fn get_usage_stats() -> UsageStats {
             ).single();
 
             for (model_id, usage) in models {
-                let display_name = if model_id.contains("opus") { "Claude 3 Opus" }
-                                  else if model_id.contains("sonnet") { "Claude 3.5 Sonnet" }
-                                  else if model_id.contains("haiku") { "Claude 3 Haiku" }
+                // Derive display name from model ID
+                // Pricing data sourced from https://github.com/anomalyco/models.dev
+                let display_name = if model_id.contains("opus-4-6") { "Claude Opus 4.6" }
+                                  else if model_id.contains("opus-4-5") { "Claude Opus 4.5" }
+                                  else if model_id.contains("opus-4-1") { "Claude Opus 4.1" }
+                                  else if model_id.contains("opus-4") { "Claude Opus 4" }
+                                  else if model_id.contains("opus") { "Claude Opus" }
+                                  else if model_id.contains("sonnet-4-6") { "Claude Sonnet 4.6" }
+                                  else if model_id.contains("sonnet-4-5") { "Claude Sonnet 4.5" }
+                                  else if model_id.contains("sonnet-4") { "Claude Sonnet 4" }
+                                  else if model_id.contains("sonnet") { "Claude Sonnet" }
+                                  else if model_id.contains("haiku") { "Claude Haiku 4.5" }
                                   else { &model_id };
 
                 let (in_rate, out_rate, cr_rate, cw_rate) = if let Some(ref p) = pricing {
                     let key = if model_id.contains("opus-4-6") { "opus-4-6" }
                              else if model_id.contains("opus-4-5") { "opus-4-5" }
-                             else if model_id.contains("sonnet") { "sonnet-4-5" }
+                             else if model_id.contains("opus-4-1") { "opus-4-1" }
+                             else if model_id.contains("opus-4") { "opus-4" }
+                             else if model_id.contains("sonnet-4-6") { "sonnet-4-6" }
+                             else if model_id.contains("sonnet-4-5") { "sonnet-4-5" }
+                             else if model_id.contains("sonnet-4") { "sonnet-4" }
+                             else if model_id.contains("sonnet") { "sonnet-4" }
                              else { "haiku-4-5" };
                     let m = p.models.get(key);
                     (m.map(|x| x.input).unwrap_or(0.0) / 1_000_000.0,
                      m.map(|x| x.output).unwrap_or(0.0) / 1_000_000.0,
                      m.map(|x| x.cache_read).unwrap_or(0.0) / 1_000_000.0,
                      m.map(|x| x.cache_write).unwrap_or(0.0) / 1_000_000.0)
-                } else { (0.000015, 0.000075, 0.0000015, 0.00001875) };
+                } else {
+                    // Fallback per-model-family rates ($ per token) from models.dev
+                    // Opus:   $5/M in, $25/M out, $0.50/M cache_read, $6.25/M cache_write
+                    // Sonnet: $3/M in, $15/M out, $0.30/M cache_read, $3.75/M cache_write
+                    // Haiku:  $1/M in, $5/M out,  $0.10/M cache_read, $1.25/M cache_write
+                    if model_id.contains("opus") {
+                        (5.0 / 1_000_000.0, 25.0 / 1_000_000.0, 0.50 / 1_000_000.0, 6.25 / 1_000_000.0)
+                    } else if model_id.contains("sonnet") {
+                        (3.0 / 1_000_000.0, 15.0 / 1_000_000.0, 0.30 / 1_000_000.0, 3.75 / 1_000_000.0)
+                    } else {
+                        (1.0 / 1_000_000.0, 5.0 / 1_000_000.0, 0.10 / 1_000_000.0, 1.25 / 1_000_000.0)
+                    }
+                };
 
                 let cost = (usage.input as f64 * in_rate) + (usage.output as f64 * out_rate) +
                            (usage.cache_read as f64 * cr_rate) + (usage.cache_write as f64 * cw_rate);
@@ -481,10 +507,11 @@ pub fn get_usage_stats() -> UsageStats {
 
     let dex = get_dex_data();
     let mut skill_distribution = HashMap::new();
-    for tool in dex.tools { skill_distribution.insert(tool.name, tool.skills.len()); }
+    let total_skills: usize = dex.tools.iter().map(|t| t.skills.len()).sum::<usize>() + dex.repos.iter().map(|r| r.skills.len()).sum::<usize>();
+    for tool in &dex.tools { skill_distribution.insert(tool.name.clone(), tool.skills.len()); }
 
     UsageStats {
-        daily_activity, hourly_activity: hourly_counts, total_skills: dex.tools.iter().map(|t| t.skills.len()).sum::<usize>() + dex.repos.iter().map(|r| r.skills.len()).sum::<usize>(),
+        daily_activity, hourly_activity: hourly_counts, total_skills,
         top_projects, skill_distribution, avg_prompt_length: if total_messages > 0 { total_prompt_chars / total_messages } else { 0 },
         command_ratio: if total_messages > 0 { command_count as f64 / total_messages as f64 } else { 0.0 },
         estimated_cost_today: cost_today, estimated_cost_week: cost_week, estimated_cost_all_time: cost_all_time,
