@@ -320,6 +320,62 @@ pub fn test_mcp_connection(command: String, args: Vec<String>) -> DiagnosticResu
 }
 
 #[tauri::command]
+pub fn check_all_mcp_health() -> HashMap<String, DiagnosticResult> {
+    let dex = get_dex_data();
+    let mut results = HashMap::new();
+    for tool in &dex.tools {
+        if let Some(ref servers) = tool.mcp_servers {
+            for (name, config) in servers {
+                if !results.contains_key(name) {
+                    results.insert(name.clone(), test_mcp_connection(config.command.clone(), config.args.clone()));
+                }
+            }
+        }
+    }
+    results
+}
+
+#[tauri::command]
+pub async fn install_runtime(app: AppHandle, runtime: String) -> Result<String, String> {
+    let (cmd, args): (&str, Vec<&str>) = match runtime.as_str() {
+        "npx" | "node" | "npm" => {
+            if cfg!(target_os = "macos") {
+                ("brew", vec!["install", "node"])
+            } else {
+                return Err("Please install Node.js from https://nodejs.org".into());
+            }
+        }
+        "uvx" | "uv" => {
+            ("sh", vec!["-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"])
+        }
+        "python3" | "python" => {
+            if cfg!(target_os = "macos") {
+                ("brew", vec!["install", "python3"])
+            } else {
+                return Err("Please install Python from https://python.org".into());
+            }
+        }
+        _ => return Err(format!("Unknown runtime '{}'. Install it manually.", runtime)),
+    };
+
+    let _ = app.emit("mcp-log", format!(">>> Installing {} via: {} {}", runtime, cmd, args.join(" ")));
+
+    let output = Command::new(cmd)
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Failed to run installer: {}", e))?;
+
+    if output.status.success() {
+        let _ = app.emit("mcp-log", format!(">>> {} installed successfully.", runtime));
+        Ok(format!("Successfully installed {}", runtime))
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let _ = app.emit("mcp-log", format!(">>> Install failed: {}", stderr));
+        Err(format!("Installation failed: {}", stderr.chars().take(200).collect::<String>()))
+    }
+}
+
+#[tauri::command]
 pub fn get_marketplace_servers() -> Vec<MarketplaceServer> {
     vec![
         MarketplaceServer {

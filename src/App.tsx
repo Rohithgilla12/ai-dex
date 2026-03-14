@@ -37,7 +37,6 @@ import {
   Terminal as TerminalIcon,
   Play,
   CheckCircle2,
-  XCircle,
   DollarSign,
   TrendingUp,
   Lightbulb,
@@ -50,7 +49,10 @@ import {
   Trash2,
   GitPullRequest,
   Package,
-  FolderOpen
+  FolderOpen,
+  HeartPulse,
+  Download,
+  AlertTriangle
 } from "lucide-react";
 
 function App() {
@@ -279,6 +281,32 @@ function App() {
       await invoke("sync_repo", { name });
       await fetchData();
     } catch (err) { console.error(`Sync failed: ${err}`); }
+  };
+
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+
+  const handleHealthCheckAll = async () => {
+    setIsCheckingHealth(true);
+    try {
+      const results: Record<string, DiagnosticResult> = await invoke("check_all_mcp_health");
+      setDiagnostics(results);
+    } catch (err) { console.error(`Health check failed: ${err}`); }
+    finally { setIsCheckingHealth(false); }
+  };
+
+  const [installingRuntime, setInstallingRuntime] = useState<string | null>(null);
+
+  const handleInstallRuntime = async (runtime: string) => {
+    setInstallingRuntime(runtime);
+    try {
+      const result: string = await invoke("install_runtime", { runtime });
+      alert(result);
+      setDiagnostics({});
+      await handleHealthCheckAll();
+    } catch (err) {
+      alert(String(err));
+    }
+    finally { setInstallingRuntime(null); }
   };
 
   const limitProgress = usageStats ? (usageStats.estimatedCostToday / dailyLimit) * 100 : 0;
@@ -665,9 +693,14 @@ function App() {
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                     <h3 className="section-title" style={{ marginBottom: 0 }}>MCP Servers</h3>
-                    <div className="editor-toggle">
-                      <button onClick={() => setEditorMode("form")} className={`editor-toggle-btn ${editorMode === "form" ? "active" : ""}`}>Form</button>
-                      <button onClick={() => setEditorMode("code")} className={`editor-toggle-btn ${editorMode === "code" ? "active" : ""}`}>JSON</button>
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                      <button className="mcp-action-btn" onClick={handleHealthCheckAll} disabled={isCheckingHealth}>
+                        <HeartPulse size={12} /> {isCheckingHealth ? "Checking..." : "Health Check All"}
+                      </button>
+                      <div className="editor-toggle">
+                        <button onClick={() => setEditorMode("form")} className={`editor-toggle-btn ${editorMode === "form" ? "active" : ""}`}>Form</button>
+                        <button onClick={() => setEditorMode("code")} className={`editor-toggle-btn ${editorMode === "code" ? "active" : ""}`}>JSON</button>
+                      </div>
                     </div>
                   </div>
                   {editorMode === "form" && (
@@ -684,13 +717,39 @@ function App() {
                       <div className="mcp-container">
                         <table className="mcp-table">
                           <thead>
-                            <tr><th>Server</th><th>Command</th><th style={{ textAlign: "right" }}>Actions</th></tr>
+                            <tr><th>Server</th><th>Command</th><th>Status</th><th style={{ textAlign: "right" }}>Actions</th></tr>
                           </thead>
                           <tbody>
-                            {filteredMcp.map(([name, config]) => (
+                            {filteredMcp.map(([name, config]) => {
+                              const diag = diagnostics[name];
+                              return (
                               <tr key={name}>
                                 <td>{name}</td>
                                 <td><code>{config.command}</code></td>
+                                <td>
+                                  {diag ? (
+                                    <div className="diag-inline">
+                                      {diag.success
+                                        ? <span className="diag-ok"><CheckCircle2 size={12} /> OK</span>
+                                        : <span className="diag-fail">
+                                            <AlertTriangle size={12} /> {diag.message}
+                                            {diag.missingRuntime && (
+                                              <button
+                                                className="mcp-action-btn diag-install-btn"
+                                                disabled={installingRuntime === diag.missingRuntime}
+                                                onClick={() => handleInstallRuntime(diag.missingRuntime!)}
+                                              >
+                                                <Download size={11} /> {installingRuntime === diag.missingRuntime ? "Installing..." : `Install ${diag.missingRuntime}`}
+                                              </button>
+                                            )}
+                                          </span>
+                                      }
+                                      {diag.suggestion && !diag.success && <span className="diag-suggestion">{diag.suggestion}</span>}
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted" style={{ fontSize: "11px" }}>Not checked</span>
+                                  )}
+                                </td>
                                 <td>
                                   <div className="mcp-actions">
                                     <button onClick={() => handleTestMcp(name, config.command, config.args)} className="mcp-action-btn"><Zap size={12} /> Test</button>
@@ -700,28 +759,21 @@ function App() {
                                   </div>
                                 </td>
                               </tr>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
-                      {(isDebugging || Object.keys(diagnostics).length > 0) && (
+                      {isDebugging && (
                         <div className="debug-panel">
                           <div className="debug-panel-header">
                             <div className="debug-panel-label">
-                              <TerminalIcon size={14} /> {isDebugging ? `Logs: ${isDebugging}` : "Diagnostics"}
+                              <TerminalIcon size={14} /> Logs: {isDebugging}
                             </div>
-                            <button className="debug-close-btn" onClick={() => { setIsDebugging(null); setDiagnostics({}); setMcpLogs([]); }}>Close</button>
+                            <button className="debug-close-btn" onClick={() => { setIsDebugging(null); setMcpLogs([]); }}>Close</button>
                           </div>
                           <div className="debug-panel-body">
-                            {isDebugging
-                              ? mcpLogs.map((log, i) => <div key={i}>{log}</div>)
-                              : Object.entries(diagnostics).map(([n, d]) => (
-                                  <div key={n} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                                    {d.success ? <CheckCircle2 size={12} color="var(--success)" /> : <XCircle size={12} color="var(--danger)" />}
-                                    <span>{n}: {d.message}</span>
-                                  </div>
-                                ))
-                            }
+                            {mcpLogs.map((log, i) => <div key={i}>{log}</div>)}
                           </div>
                         </div>
                       )}

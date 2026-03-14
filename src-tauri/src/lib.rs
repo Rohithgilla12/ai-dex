@@ -19,6 +19,8 @@ pub fn run() {
             uninstall_global_skill,
             create_skill,
             test_mcp_connection,
+            check_all_mcp_health,
+            install_runtime,
             sync_mcp_to_all_tools,
             get_usage_stats,
             get_marketplace_servers,

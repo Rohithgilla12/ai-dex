@@ -1125,5 +1125,50 @@ code {
   line-height: 1.5;
 }
 
+/* Inline diagnostics */
+.diag-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.diag-ok {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--success);
+  font-weight: 600;
+}
+
+.diag-fail {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--danger);
+  font-weight: 600;
+  flex-wrap: wrap;
+}
+
+.diag-suggestion {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.diag-install-btn {
+  margin-left: 6px;
+  background: var(--warning-soft);
+  border-color: rgba(251, 191, 36, 0.2);
+  color: var(--warning);
+  font-size: 10px;
+}
+
+.diag-install-btn:hover {
+  background: rgba(251, 191, 36, 0.15);
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
 /* Spacer */
 .spacer { height: 40px; }
