@@ -89,6 +89,23 @@ export interface MarketplaceServer {
   qualifiedName?: string;
 }
 
+export interface ConfigRevision {
+  timestamp: string;
+  filename: string;
+  size: number;
+}
+
+export interface DiffHunk {
+  kind: "add" | "remove" | "context";
+  content: string;
+}
+
+export interface DiffResult {
+  oldContent: string;
+  newContent: string;
+  hunks: DiffHunk[];
+}
+
 export interface DiagnosticResult {
   success: boolean;
   message: string;

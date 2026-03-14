@@ -77,6 +77,29 @@ pub struct MarketplaceServer {
     pub qualified_name: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigRevision {
+    pub timestamp: String,
+    pub filename: String,
+    pub size: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffResult {
+    pub old_content: String,
+    pub new_content: String,
+    pub hunks: Vec<DiffHunk>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffHunk {
+    pub kind: String,
+    pub content: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticResult {

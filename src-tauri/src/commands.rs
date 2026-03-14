@@ -127,9 +127,86 @@ pub fn get_dex_data() -> DexData {
     DexData { tools, repos }
 }
 
+fn snapshot_config(path: &str) -> Result<(), String> {
+    let src = std::path::Path::new(path);
+    if !src.exists() { return Ok(()); }
+    let home = get_home_path();
+    let safe_name = path.replace('/', "_").replace('\\', "_");
+    let history_dir = home.join(".ai-dex").join("history").join(&safe_name);
+    fs::create_dir_all(&history_dir).map_err(|e| e.to_string())?;
+    let ts = Utc::now().format("%Y%m%d_%H%M%S").to_string();
+    let dest = history_dir.join(format!("{}.snapshot", ts));
+    fs::copy(src, dest).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn save_config(path: String, content: String) -> Result<(), String> {
+    let _ = snapshot_config(&path);
     fs::write(path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_config_history(path: String) -> Vec<ConfigRevision> {
+    let home = get_home_path();
+    let safe_name = path.replace('/', "_").replace('\\', "_");
+    let history_dir = home.join(".ai-dex").join("history").join(&safe_name);
+    let mut revisions = Vec::new();
+    if history_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&history_dir) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if fname.ends_with(".snapshot") {
+                    let size = entry.metadata().map(|m| m.len() as usize).unwrap_or(0);
+                    let ts = fname.replace(".snapshot", "");
+                    revisions.push(ConfigRevision { timestamp: ts, filename: fname, size });
+                }
+            }
+        }
+    }
+    revisions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    revisions
+}
+
+#[tauri::command]
+pub fn get_config_diff(path: String, revision_filename: String) -> Result<DiffResult, String> {
+    let home = get_home_path();
+    let safe_name = path.replace('/', "_").replace('\\', "_");
+    let rev_path = home.join(".ai-dex").join("history").join(&safe_name).join(&revision_filename);
+    let old_content = fs::read_to_string(&rev_path).map_err(|e| e.to_string())?;
+    let new_content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+
+    let old_lines: Vec<&str> = old_content.lines().collect();
+    let new_lines: Vec<&str> = new_content.lines().collect();
+
+    let mut hunks = Vec::new();
+    let max_len = old_lines.len().max(new_lines.len());
+    for i in 0..max_len {
+        let old_line = old_lines.get(i).copied().unwrap_or("");
+        let new_line = new_lines.get(i).copied().unwrap_or("");
+        if i >= old_lines.len() {
+            hunks.push(DiffHunk { kind: "add".into(), content: new_line.to_string() });
+        } else if i >= new_lines.len() {
+            hunks.push(DiffHunk { kind: "remove".into(), content: old_line.to_string() });
+        } else if old_line != new_line {
+            hunks.push(DiffHunk { kind: "remove".into(), content: old_line.to_string() });
+            hunks.push(DiffHunk { kind: "add".into(), content: new_line.to_string() });
+        } else {
+            hunks.push(DiffHunk { kind: "context".into(), content: old_line.to_string() });
+        }
+    }
+
+    Ok(DiffResult { old_content, new_content, hunks })
+}
+
+#[tauri::command]
+pub fn restore_config_revision(path: String, revision_filename: String) -> Result<(), String> {
+    let _ = snapshot_config(&path);
+    let home = get_home_path();
+    let safe_name = path.replace('/', "_").replace('\\', "_");
+    let rev_path = home.join(".ai-dex").join("history").join(&safe_name).join(&revision_filename);
+    let content = fs::read_to_string(&rev_path).map_err(|e| e.to_string())?;
+    fs::write(&path, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

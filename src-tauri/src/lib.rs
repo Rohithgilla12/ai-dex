@@ -12,6 +12,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_dex_data,
             save_config,
+            get_config_history,
+            get_config_diff,
+            restore_config_revision,
             add_repo,
             sync_repo,
             search_global_skills,

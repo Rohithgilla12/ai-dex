@@ -9,7 +9,9 @@ import {
   GlobalSkillSearchResult,
   MarketplaceServer,
   DiagnosticResult,
-  MemoryEntry
+  MemoryEntry,
+  ConfigRevision,
+  DiffResult
 } from "./types";
 import {
   AreaChart,
@@ -53,7 +55,8 @@ import {
   HeartPulse,
   Download,
   AlertTriangle,
-  Microscope
+  Microscope,
+  RotateCcw
 } from "lucide-react";
 
 function App() {
@@ -308,6 +311,35 @@ function App() {
       alert(String(err));
     }
     finally { setInstallingRuntime(null); }
+  };
+
+  const [revisions, setRevisions] = useState<ConfigRevision[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [activeDiff, setActiveDiff] = useState<DiffResult | null>(null);
+  const [activeDiffRevision, setActiveDiffRevision] = useState<string | null>(null);
+
+  const handleShowHistory = async () => {
+    if (!currentTool?.configPath) return;
+    const history: ConfigRevision[] = await invoke("get_config_history", { path: currentTool.configPath });
+    setRevisions(history);
+    setShowHistory(true);
+    setActiveDiff(null);
+    setActiveDiffRevision(null);
+  };
+
+  const handleViewDiff = async (revisionFilename: string) => {
+    if (!currentTool?.configPath) return;
+    const diff: DiffResult = await invoke("get_config_diff", { path: currentTool.configPath, revisionFilename });
+    setActiveDiff(diff);
+    setActiveDiffRevision(revisionFilename);
+  };
+
+  const handleRestoreRevision = async (revisionFilename: string) => {
+    if (!currentTool?.configPath) return;
+    await invoke("restore_config_revision", { path: currentTool.configPath, revisionFilename });
+    await fetchData();
+    setShowHistory(false);
+    setActiveDiff(null);
   };
 
   const handleLaunchInspector = async (serverName: string) => {
@@ -746,6 +778,9 @@ function App() {
                       <button className="mcp-action-btn" onClick={handleHealthCheckAll} disabled={isCheckingHealth}>
                         <HeartPulse size={12} /> {isCheckingHealth ? "Checking..." : "Health Check All"}
                       </button>
+                      <button className="mcp-action-btn" onClick={handleShowHistory}>
+                        <History size={12} /> History
+                      </button>
                       <div className="editor-toggle">
                         <button onClick={() => setEditorMode("form")} className={`editor-toggle-btn ${editorMode === "form" ? "active" : ""}`}>Form</button>
                         <button onClick={() => setEditorMode("code")} className={`editor-toggle-btn ${editorMode === "code" ? "active" : ""}`}>JSON</button>
@@ -840,6 +875,56 @@ function App() {
                     </div>
                   )}
                 </>
+              )}
+
+              {showHistory && (
+                <div className="history-panel">
+                  <div className="history-panel-header">
+                    <h3 className="section-title" style={{ marginBottom: 0 }}>
+                      <History size={14} /> Config History
+                    </h3>
+                    <button className="debug-close-btn" onClick={() => { setShowHistory(false); setActiveDiff(null); }}>Close</button>
+                  </div>
+                  <div className="history-panel-body">
+                    <div className="history-list">
+                      {revisions.length === 0 && <p className="text-muted" style={{ padding: "20px", textAlign: "center" }}>No revisions yet. Changes are tracked automatically on save.</p>}
+                      {revisions.map(rev => {
+                        const ts = rev.timestamp.replace(/_/g, " at ").replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
+                        return (
+                          <div key={rev.filename} className={`history-item ${activeDiffRevision === rev.filename ? "active" : ""}`}>
+                            <div className="history-item-info">
+                              <span className="history-item-time">{ts}</span>
+                              <span className="history-item-size">{(rev.size / 1024).toFixed(1)} KB</span>
+                            </div>
+                            <div className="history-item-actions">
+                              <button className="mcp-action-btn" onClick={() => handleViewDiff(rev.filename)}>Diff</button>
+                              <button className="mcp-action-btn" onClick={() => handleRestoreRevision(rev.filename)}>
+                                <RotateCcw size={11} /> Restore
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {activeDiff && (
+                      <div className="diff-viewer">
+                        <div className="diff-viewer-header">
+                          <span>Changes from {activeDiffRevision?.replace(".snapshot", "")} to current</span>
+                        </div>
+                        <div className="diff-viewer-body">
+                          {activeDiff.hunks.map((hunk, i) => (
+                            <div key={i} className={`diff-line diff-line-${hunk.kind}`}>
+                              <span className="diff-line-marker">
+                                {hunk.kind === "add" ? "+" : hunk.kind === "remove" ? "-" : " "}
+                              </span>
+                              <span>{hunk.content || "\u00A0"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </section>
           )}
