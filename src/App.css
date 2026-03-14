@@ -1170,5 +1170,29 @@ code {
   color: var(--warning);
 }
 
+/* Marketplace */
+.marketplace-search {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.marketplace-search .repo-input {
+  flex: 1;
+}
+
+.marketplace-installs {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.marketplace-author {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
 /* Spacer */
 .spacer { height: 40px; }

@@ -375,50 +375,105 @@ pub async fn install_runtime(app: AppHandle, runtime: String) -> Result<String, 
     }
 }
 
+fn parse_smithery_response(body: &serde_json::Value) -> Vec<MarketplaceServer> {
+    let mut servers = Vec::new();
+    if let Some(arr) = body.get("servers").and_then(|s| s.as_array()) {
+        for item in arr {
+            let name = item.get("displayName").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let description = item.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let qualified_name = item.get("qualifiedName").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let homepage = item.get("homepage").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let use_count = item.get("useCount").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+
+            let command = "npx".to_string();
+            let args = vec!["-y".into(), format!("@smithery/cli@latest run {}", qualified_name)];
+
+            if !name.is_empty() {
+                servers.push(MarketplaceServer {
+                    name,
+                    description,
+                    command,
+                    args,
+                    author: qualified_name.split('/').next().unwrap_or("Community").to_string(),
+                    category: "Community".into(),
+                    use_count,
+                    homepage,
+                    qualified_name: Some(qualified_name),
+                });
+            }
+        }
+    }
+    servers
+}
+
+fn fallback_marketplace() -> Vec<MarketplaceServer> {
+    let items = vec![
+        ("Brave Search", "Search the web using Brave's privacy-focused search engine.", "npx", "-y @modelcontextprotocol/server-brave-search", "MCP Team", "Search"),
+        ("GitHub", "Interact with GitHub repositories, issues, and PRs.", "npx", "-y @modelcontextprotocol/server-github", "MCP Team", "Development"),
+        ("Postgres", "Read-only access to PostgreSQL databases.", "npx", "-y @modelcontextprotocol/server-postgres", "MCP Team", "Database"),
+        ("Filesystem", "Read and write files on the local filesystem.", "npx", "-y @modelcontextprotocol/server-filesystem", "MCP Team", "Filesystem"),
+        ("Memory", "A persistent key-value memory store for conversations.", "npx", "-y @modelcontextprotocol/server-memory", "MCP Team", "Utility"),
+        ("Fetch", "Fetch web page content and convert to markdown.", "uvx", "mcp-server-fetch", "MCP Team", "Web"),
+        ("Sequential Thinking", "A tool for structured problem solving and brainstorming.", "npx", "-y @modelcontextprotocol/server-sequential-thinking", "MCP Team", "Thinking"),
+        ("SQLite", "Query and manage SQLite databases.", "uvx", "mcp-server-sqlite", "MCP Team", "Database"),
+        ("Puppeteer", "Browser automation for web scraping and testing.", "npx", "-y @modelcontextprotocol/server-puppeteer", "MCP Team", "Browser"),
+        ("Google Maps", "Search for places and get location details.", "npx", "-y @modelcontextprotocol/server-google-maps", "MCP Team", "Location"),
+    ];
+    items.into_iter().map(|(name, desc, cmd, args_str, author, category)| {
+        MarketplaceServer {
+            name: name.into(),
+            description: desc.into(),
+            command: cmd.into(),
+            args: args_str.split(' ').map(|s| s.to_string()).collect(),
+            author: author.into(),
+            category: category.into(),
+            use_count: 0,
+            homepage: None,
+            qualified_name: None,
+        }
+    }).collect()
+}
+
 #[tauri::command]
-pub fn get_marketplace_servers() -> Vec<MarketplaceServer> {
-    vec![
-        MarketplaceServer {
-            name: "Brave Search".into(),
-            description: "Search the web using Brave's privacy-focused search engine.".into(),
-            command: "npx".into(),
-            args: vec!["-y".into(), "@modelcontextprotocol/server-brave-search".into()],
-            author: "MCP Team".into(),
-            category: "Search".into(),
-        },
-        MarketplaceServer {
-            name: "Google Maps".into(),
-            description: "Search for places and get location details.".into(),
-            command: "npx".into(),
-            args: vec!["-y".into(), "@modelcontextprotocol/server-google-maps".into()],
-            author: "MCP Team".into(),
-            category: "Location".into(),
-        },
-        MarketplaceServer {
-            name: "GitHub".into(),
-            description: "Interact with GitHub repositories, issues, and PRs.".into(),
-            command: "npx".into(),
-            args: vec!["-y".into(), "@modelcontextprotocol/server-github".into()],
-            author: "MCP Team".into(),
-            category: "Development".into(),
-        },
-        MarketplaceServer {
-            name: "Postgres".into(),
-            description: "Read-only access to PostgreSQL databases.".into(),
-            command: "npx".into(),
-            args: vec!["-y".into(), "@modelcontextprotocol/server-postgres".into()],
-            author: "MCP Team".into(),
-            category: "Database".into(),
-        },
-        MarketplaceServer {
-            name: "Sequential Thinking".into(),
-            description: "A tool for structured problem solving and brainstorming.".into(),
-            command: "npx".into(),
-            args: vec!["-y".into(), "@modelcontextprotocol/server-sequential-thinking".into()],
-            author: "MCP Team".into(),
-            category: "Thinking".into(),
-        },
-    ]
+pub async fn get_marketplace_servers() -> Vec<MarketplaceServer> {
+    let url = "https://registry.smithery.ai/servers?pageSize=40&q=";
+    match reqwest::get(url).await {
+        Ok(resp) => {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                let servers = parse_smithery_response(&body);
+                if !servers.is_empty() { return servers; }
+            }
+        }
+        Err(_) => {}
+    }
+    fallback_marketplace()
+}
+
+#[tauri::command]
+pub async fn search_marketplace(query: String) -> Vec<MarketplaceServer> {
+    let url = format!("https://registry.smithery.ai/servers?pageSize=30&q={}", urlencoded(&query));
+    match reqwest::get(&url).await {
+        Ok(resp) => {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                let servers = parse_smithery_response(&body);
+                if !servers.is_empty() { return servers; }
+            }
+        }
+        Err(_) => {}
+    }
+    fallback_marketplace().into_iter()
+        .filter(|s| s.name.to_lowercase().contains(&query.to_lowercase()) || s.description.to_lowercase().contains(&query.to_lowercase()))
+        .collect()
+}
+
+fn urlencoded(s: &str) -> String {
+    s.chars().map(|c| match c {
+        ' ' => "%20".to_string(),
+        '&' => "%26".to_string(),
+        '=' => "%3D".to_string(),
+        _ if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '~' => c.to_string(),
+        _ => format!("%{:02X}", c as u8),
+    }).collect()
 }
 
 #[tauri::command]

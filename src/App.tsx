@@ -309,6 +309,23 @@ function App() {
     finally { setInstallingRuntime(null); }
   };
 
+  const [marketplaceQuery, setMarketplaceQuery] = useState("");
+  const [isSearchingMarketplace, setIsSearchingMarketplace] = useState(false);
+
+  const handleMarketplaceSearch = async () => {
+    if (!marketplaceQuery.trim()) {
+      const servers: MarketplaceServer[] = await invoke("get_marketplace_servers");
+      setMarketplaceServers(servers);
+      return;
+    }
+    setIsSearchingMarketplace(true);
+    try {
+      const servers: MarketplaceServer[] = await invoke("search_marketplace", { query: marketplaceQuery });
+      setMarketplaceServers(servers);
+    } catch (err) { console.error(`Search failed: ${err}`); }
+    finally { setIsSearchingMarketplace(false); }
+  };
+
   const limitProgress = usageStats ? (usageStats.estimatedCostToday / dailyLimit) * 100 : 0;
 
   const nav = (mode: ViewMode, index?: number) => {
@@ -619,13 +636,36 @@ function App() {
 
           {viewMode === "marketplace" && (
             <section className="dashboard-view">
-              <h2 className="page-title">Marketplace</h2>
-              <div className="skills-grid" style={{ marginTop: "20px" }}>
-                {marketplaceServers.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())).map(server => (
-                  <div key={server.name} className="skill-card">
-                    <span className="skill-category">{server.category}</span>
+              <div className="page-header">
+                <div>
+                  <h2 className="page-title">MCP Marketplace</h2>
+                  <p className="page-subtitle">Powered by Smithery Registry &middot; {marketplaceServers.length} servers</p>
+                </div>
+              </div>
+              <div className="marketplace-search">
+                <input
+                  className="repo-input repo-input-inline"
+                  placeholder="Search MCP servers (e.g. github, slack, database...)"
+                  value={marketplaceQuery}
+                  onChange={e => setMarketplaceQuery(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleMarketplaceSearch()}
+                />
+                <button className="btn-modern" onClick={handleMarketplaceSearch} disabled={isSearchingMarketplace}>
+                  {isSearchingMarketplace ? "Searching..." : "Search"}
+                </button>
+              </div>
+              <div className="skills-grid">
+                {marketplaceServers.map((server, i) => (
+                  <div key={server.qualifiedName || `${server.name}-${i}`} className="skill-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span className="skill-category">{server.category}</span>
+                      {server.useCount > 0 && <span className="marketplace-installs">{server.useCount.toLocaleString()} installs</span>}
+                    </div>
                     <h3 className="skill-name">{server.name}</h3>
                     <p className="skill-desc">{server.description}</p>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "6px" }}>
+                      <span className="marketplace-author">{server.author}</span>
+                    </div>
                     <button className="btn-modern btn-accent btn-full" onClick={() => handleInstallMarketplace(server)}>Add to Tools</button>
                   </div>
                 ))}

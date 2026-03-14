@@ -69,6 +69,12 @@ pub struct MarketplaceServer {
     pub args: Vec<String>,
     pub author: String,
     pub category: String,
+    #[serde(default)]
+    pub use_count: usize,
+    #[serde(default)]
+    pub homepage: Option<String>,
+    #[serde(default)]
+    pub qualified_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

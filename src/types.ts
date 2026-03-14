@@ -84,6 +84,9 @@ export interface MarketplaceServer {
   args: string[];
   author: string;
   category: string;
+  useCount: number;
+  homepage?: string;
+  qualifiedName?: string;
 }
 
 export interface DiagnosticResult {

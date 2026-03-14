@@ -24,6 +24,7 @@ pub fn run() {
             sync_mcp_to_all_tools,
             get_usage_stats,
             get_marketplace_servers,
+            search_marketplace,
             spawn_mcp_and_stream_logs,
             get_memories
         ])
