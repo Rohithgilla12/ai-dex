@@ -52,7 +52,8 @@ import {
   FolderOpen,
   HeartPulse,
   Download,
-  AlertTriangle
+  AlertTriangle,
+  Microscope
 } from "lucide-react";
 
 function App() {
@@ -307,6 +308,14 @@ function App() {
       alert(String(err));
     }
     finally { setInstallingRuntime(null); }
+  };
+
+  const handleLaunchInspector = async (serverName: string) => {
+    if (!currentTool?.configPath) return;
+    try {
+      const result: string = await invoke("launch_mcp_inspector", { serverName, configPath: currentTool.configPath });
+      alert(result);
+    } catch (err) { alert(String(err)); }
   };
 
   const [marketplaceQuery, setMarketplaceQuery] = useState("");
@@ -794,6 +803,7 @@ function App() {
                                   <div className="mcp-actions">
                                     <button onClick={() => handleTestMcp(name, config.command, config.args)} className="mcp-action-btn"><Zap size={12} /> Test</button>
                                     <button onClick={() => handleDebugMcp(name, config.command, config.args)} className="mcp-action-btn"><Play size={12} /> Debug</button>
+                                    <button onClick={() => handleLaunchInspector(name)} className="mcp-action-btn"><Microscope size={12} /> Inspect</button>
                                     <button onClick={() => handleSyncMcp(name, config)} className="mcp-action-btn"><Copy size={12} /> Sync</button>
                                     <button onClick={() => handleDeleteMcp(name)} className="mcp-action-btn mcp-action-btn-danger"><Trash2 size={12} /></button>
                                   </div>

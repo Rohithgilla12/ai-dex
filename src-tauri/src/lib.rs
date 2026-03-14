@@ -26,6 +26,7 @@ pub fn run() {
             get_marketplace_servers,
             search_marketplace,
             spawn_mcp_and_stream_logs,
+            launch_mcp_inspector,
             get_memories
         ])
         .run(tauri::generate_context!())

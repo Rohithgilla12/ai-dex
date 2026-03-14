@@ -712,6 +712,35 @@ pub async fn spawn_mcp_and_stream_logs(app: AppHandle, command: String, args: Ve
 }
 
 #[tauri::command]
+pub async fn launch_mcp_inspector(server_name: String, config_path: String) -> Result<String, String> {
+    let which_check = Command::new("which").arg("npx").output();
+    if let Ok(output) = which_check {
+        if !output.status.success() {
+            return Err("npx not found. Install Node.js to use MCP Inspector.".into());
+        }
+    }
+
+    let mut args = vec![
+        "-y".to_string(),
+        "@modelcontextprotocol/inspector".to_string(),
+        "--config".to_string(),
+        config_path,
+        "--server".to_string(),
+        server_name.clone(),
+    ];
+
+    TokioCommand::new("npx")
+        .args(&args)
+        .spawn()
+        .map_err(|e| format!("Failed to launch inspector: {}", e))?;
+
+    // Suppress unused mut warning — args built incrementally for clarity
+    args.clear();
+
+    Ok(format!("MCP Inspector launched for '{}'", server_name))
+}
+
+#[tauri::command]
 pub fn sync_mcp_to_all_tools(name: String, config: McpServerConfig) -> Result<String, String> {
     let home = get_home_path();
     let mut updated_tools = Vec::new();
