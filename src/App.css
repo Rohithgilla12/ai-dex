@@ -1,3 +1,12 @@
+@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 400; src: url('./assets/fonts/jakarta-400.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 500; src: url('./assets/fonts/jakarta-500.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 600; src: url('./assets/fonts/jakarta-600.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 700; src: url('./assets/fonts/jakarta-700.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Plus Jakarta Sans'; font-weight: 800; src: url('./assets/fonts/jakarta-800.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 400; src: url('./assets/fonts/jetbrains-mono-400.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 500; src: url('./assets/fonts/jetbrains-mono-500.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 600; src: url('./assets/fonts/jetbrains-mono-600.ttf') format('truetype'); font-display: swap; }
+
 :root {
   --bg-app: #09090b;
   --bg-sidebar: #0c0c0f;
@@ -1082,6 +1091,39 @@ code {
 .text-main { color: var(--text-main); }
 .fw-700 { font-weight: 700; }
 .fw-800 { font-weight: 800; }
+
+/* 5-column MCP form grid */
+.form-grid-mcp-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr 1.5fr auto;
+  gap: 10px;
+  align-items: end;
+}
+
+/* Danger action button */
+.mcp-action-btn-danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* Empty states */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.empty-state p {
+  font-size: 14px;
+  max-width: 300px;
+  line-height: 1.5;
+}
 
 /* Spacer */
 .spacer { height: 40px; }

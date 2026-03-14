@@ -46,7 +46,11 @@ import {
   History,
   Brain,
   ChevronRight,
-  Copy
+  Copy,
+  Trash2,
+  GitPullRequest,
+  Package,
+  FolderOpen
 } from "lucide-react";
 
 function App() {
@@ -76,6 +80,7 @@ function App() {
   const [newMcpName, setNewMcpName] = useState("");
   const [newMcpCommand, setNewMcpCommand] = useState("");
   const [newMcpArgs, setNewMcpArgs] = useState("");
+  const [newMcpEnv, setNewMcpEnv] = useState("");
   const [isAddingMcp, setIsAddingMcp] = useState(false);
   const [editorMode, setEditorMode] = useState<"code" | "form">("form");
 
@@ -84,6 +89,16 @@ function App() {
   const [diagnostics, setDiagnostics] = useState<Record<string, DiagnosticResult>>({});
 
   const [dailyLimit] = useState(10.0);
+
+  const parseEnvString = (s: string): Record<string, string> => {
+    const env: Record<string, string> = {};
+    if (!s.trim()) return env;
+    for (const pair of s.split(",")) {
+      const eqIdx = pair.indexOf("=");
+      if (eqIdx > 0) env[pair.slice(0, eqIdx).trim()] = pair.slice(eqIdx + 1).trim();
+    }
+    return env;
+  };
 
   const fetchData = async () => {
     try {
@@ -153,7 +168,7 @@ function App() {
     }
   };
 
-  const handleAddMcp = async (name?: string, cmd?: string, args?: string[]) => {
+  const handleAddMcp = async (name?: string, cmd?: string, args?: string[], env?: Record<string, string>) => {
     const finalName = name || newMcpName;
     const finalCmd = cmd || newMcpCommand;
     const finalArgs = args || (newMcpArgs ? newMcpArgs.split(" ") : []);
@@ -162,10 +177,13 @@ function App() {
     try {
       const config = JSON.parse(editingContent || "{}");
       if (!config.mcpServers) config.mcpServers = {};
-      config.mcpServers[finalName] = { command: finalCmd, args: finalArgs };
+      const serverEntry: Record<string, unknown> = { command: finalCmd, args: finalArgs };
+      const finalEnv = env || parseEnvString(newMcpEnv);
+      if (finalEnv && Object.keys(finalEnv).length > 0) serverEntry.env = finalEnv;
+      config.mcpServers[finalName] = serverEntry;
       const updatedContent = JSON.stringify(config, null, 2);
       await invoke("save_config", { path: currentTool.configPath, content: updatedContent });
-      setNewMcpName(""); setNewMcpCommand(""); setNewMcpArgs(""); setEditingContent(updatedContent);
+      setNewMcpName(""); setNewMcpCommand(""); setNewMcpArgs(""); setNewMcpEnv(""); setEditingContent(updatedContent);
       fetchData();
     } catch (err) { console.error(`Failed: ${err}`); }
     finally { setIsAddingMcp(false); }
@@ -233,6 +251,32 @@ function App() {
     try {
       const result: string = await invoke("sync_mcp_to_all_tools", { name, config });
       alert(result);
+      await fetchData();
+    } catch (err) { console.error(`Sync failed: ${err}`); }
+  };
+
+  const handleDeleteMcp = async (name: string) => {
+    if (!currentTool?.configPath) return;
+    try {
+      const config = JSON.parse(editingContent || "{}");
+      if (config.mcpServers) {
+        delete config.mcpServers[name];
+        const updatedContent = JSON.stringify(config, null, 2);
+        await invoke("save_config", { path: currentTool.configPath, content: updatedContent });
+        setEditingContent(updatedContent);
+        fetchData();
+      }
+    } catch (err) { console.error(`Failed: ${err}`); }
+  };
+
+  const handleUninstallSkill = async (id: string) => {
+    try { await invoke("uninstall_global_skill", { package: id }); await fetchData(); }
+    catch (err) { console.error(`Failed: ${err}`); }
+  };
+
+  const handleSyncRepo = async (name: string) => {
+    try {
+      await invoke("sync_repo", { name });
       await fetchData();
     } catch (err) { console.error(`Sync failed: ${err}`); }
   };
@@ -564,14 +608,21 @@ function App() {
           {viewMode === "global_search" && (
             <section className="dashboard-view">
               <h2 className="page-title">Discover</h2>
-              <div className="skills-grid" style={{ marginTop: "20px" }}>
-                {searchResults.map(skill => (
-                  <div key={skill.id} className="skill-card">
-                    <div className="skill-name">{skill.id}</div>
-                    <button className="btn-modern btn-accent btn-full" onClick={() => handleInstallSkill(skill.id)}>Install</button>
-                  </div>
-                ))}
-              </div>
+              {searchResults.length > 0 ? (
+                <div className="skills-grid" style={{ marginTop: "20px" }}>
+                  {searchResults.map(skill => (
+                    <div key={skill.id} className="skill-card">
+                      <div className="skill-name">{skill.id}</div>
+                      <button className="btn-modern btn-accent btn-full" onClick={() => handleInstallSkill(skill.id)}>Install</button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <Search size={40} strokeWidth={1} />
+                  <p>Search for skills using the search bar above.</p>
+                </div>
+              )}
             </section>
           )}
 
@@ -587,7 +638,7 @@ function App() {
                 </div>
               </div>
 
-              {currentTool.skills.length > 0 && (
+              {currentTool.skills.length > 0 ? (
                 <>
                   <h3 className="section-title">Installed Skills</h3>
                   <div className="skills-grid" style={{ marginBottom: "28px" }}>
@@ -595,11 +646,20 @@ function App() {
                       <div key={s.name} className="skill-card">
                         <div className="skill-name">{s.name}</div>
                         {s.description && <p className="skill-desc">{s.description}</p>}
+                        <button className="mcp-action-btn mcp-action-btn-danger" style={{ marginTop: "10px" }} onClick={() => handleUninstallSkill(s.name)}>
+                          <Trash2 size={11} /> Uninstall
+                        </button>
                       </div>
                     ))}
                   </div>
                 </>
-              )}
+              ) : !currentTool.configPath ? (
+                <div className="empty-state">
+                  <Package size={40} strokeWidth={1} />
+                  <p>No skills installed for {currentTool.name}.</p>
+                  <button className="btn-modern btn-accent" onClick={() => nav("global_search")}>Find Skills</button>
+                </div>
+              ) : null}
 
               {currentTool.configPath && (
                 <>
@@ -613,10 +673,11 @@ function App() {
                   {editorMode === "form" && (
                     <>
                       <div className="form-container form-container-dashed">
-                        <div className="form-grid-mcp">
+                        <div className="form-grid-mcp-2">
                           <input className="repo-input repo-input-inline" placeholder="Name" value={newMcpName} onChange={e => setNewMcpName(e.target.value)} />
-                          <input className="repo-input repo-input-inline" placeholder="Command" value={newMcpCommand} onChange={e => setNewMcpCommand(e.target.value)} />
+                          <input className="repo-input repo-input-inline" placeholder="Command (npx, uvx, ...)" value={newMcpCommand} onChange={e => setNewMcpCommand(e.target.value)} />
                           <input className="repo-input repo-input-inline" placeholder="Args (space separated)" value={newMcpArgs} onChange={e => setNewMcpArgs(e.target.value)} />
+                          <input className="repo-input repo-input-inline" placeholder="Env (KEY=val, KEY2=val2)" value={newMcpEnv} onChange={e => setNewMcpEnv(e.target.value)} />
                           <button className="btn-modern" disabled={isAddingMcp} onClick={() => handleAddMcp()}>Add</button>
                         </div>
                       </div>
@@ -634,7 +695,8 @@ function App() {
                                   <div className="mcp-actions">
                                     <button onClick={() => handleTestMcp(name, config.command, config.args)} className="mcp-action-btn"><Zap size={12} /> Test</button>
                                     <button onClick={() => handleDebugMcp(name, config.command, config.args)} className="mcp-action-btn"><Play size={12} /> Debug</button>
-                                    <button onClick={() => handleSyncMcp(name, config)} className="mcp-action-btn"><Copy size={12} /> Sync All</button>
+                                    <button onClick={() => handleSyncMcp(name, config)} className="mcp-action-btn"><Copy size={12} /> Sync</button>
+                                    <button onClick={() => handleDeleteMcp(name)} className="mcp-action-btn mcp-action-btn-danger"><Trash2 size={12} /></button>
                                   </div>
                                 </td>
                               </tr>
@@ -707,15 +769,30 @@ function App() {
 
           {viewMode === "repos" && currentRepo && (
             <section className="dashboard-view">
-              <h2 className="page-title">{currentRepo.name}</h2>
-              <div className="skills-grid" style={{ marginTop: "20px" }}>
-                {currentRepo.skills.map(s => (
-                  <div key={s.name} className="skill-card">
-                    <div className="skill-name">{s.name}</div>
-                    <div className="skill-desc">{s.description}</div>
-                  </div>
-                ))}
+              <div className="page-header">
+                <div>
+                  <h2 className="page-title">{currentRepo.name}</h2>
+                  <p className="page-subtitle">{currentRepo.skills.length} skill{currentRepo.skills.length !== 1 ? "s" : ""} &middot; {currentRepo.url}</p>
+                </div>
+                <button className="btn-modern" onClick={() => handleSyncRepo(currentRepo.name)}>
+                  <GitPullRequest size={13} style={{ marginRight: "6px", verticalAlign: "middle" }} /> Pull Updates
+                </button>
               </div>
+              {currentRepo.skills.length > 0 ? (
+                <div className="skills-grid">
+                  {currentRepo.skills.map(s => (
+                    <div key={s.name} className="skill-card">
+                      <div className="skill-name">{s.name}</div>
+                      {s.description && <div className="skill-desc">{s.description}</div>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <FolderOpen size={40} strokeWidth={1} />
+                  <p>No skills found in this repository.</p>
+                </div>
+              )}
             </section>
           )}
 
