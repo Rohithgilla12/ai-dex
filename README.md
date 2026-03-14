@@ -8,15 +8,47 @@ As the ecosystem of local AI tools (like Claude Desktop, Claude Code, Gemini CLI
 
 ## ✨ Features
 
-- **Centralized Dashboard:** A single pane of glass for all your configured AI tools.
-- **Skill Discovery & Management:** Integrated with the [skills.sh](https://skills.sh) registry. Search, install, and uninstall global skills directly from the UI.
-- **Skill Scaffolding:** Automated creator flow to bootstrap new skills for Gemini CLI or Claude Code, generating standard `package.json` and `SKILL.md` templates.
-- **Dual-Mode Configuration:** 
-    - **Form Interface:** Add and configure MCP servers through a user-friendly UI.
-    - **Raw Editor:** Directly edit JSON/TOML configuration files for advanced users.
-- **MCP Health Checks:** One-click diagnostics to verify if your MCP server commands (like `npx` or `uvx` scripts) are executable and correctly configured in your environment.
-- **Cross-Tool Sync:** "Configure once, sync everywhere." Instantly propagate an MCP server definition across multiple supported AI tools.
-- **Git Repository Support:** Manage collections of skills by cloning and syncing remote Git repositories.
+### MCP Server Management
+- **Add, edit, delete** MCP servers through a form UI or raw JSON editor
+- **Cross-Tool Sync:** Propagate an MCP server to Claude Desktop and Claude Code in one click
+- **Health Check All:** Test every configured server at once with inline pass/fail status
+- **MCP Inspector:** Launch the official MCP Inspector for deep interactive debugging
+- **Environment Variables:** Configure API keys and env vars per server from the form UI
+
+### MCP Marketplace
+- **Smithery Registry:** Browse and search 3,800+ community MCP servers
+- **One-Click Install:** Add any server to your tools directly from the marketplace
+- **Offline Fallback:** Curated list of 10 popular servers available when offline
+
+### Skill Management
+- **Discovery & Install:** Search and install global skills from the [skills.sh](https://skills.sh) registry
+- **Uninstall:** Remove skills directly from the tool view
+- **Skill Scaffolding:** Bootstrap new skills for Gemini CLI or Claude Code with `SKILL.md` and `package.json` templates
+- **Git Repositories:** Clone, sync, and manage collections of skills from remote repos
+
+### AI Cost Center
+- **Precise Spend Tracking:** Real cost data from Claude's pricing files, not estimates
+- **Per-Model Breakdown:** See spend by model (Opus, Sonnet, Haiku) with correct per-family rates sourced from [models.dev](https://github.com/anomalyco/models.dev)
+- **Cache Efficiency:** Track how much prompt caching is saving you
+- **Time Ranges:** Today, this week, projected month, and all-time views
+
+### Usage Analytics
+- **Activity Charts:** Daily intensity and hourly peak distribution
+- **Command Sequences:** Most common tool usage patterns
+- **Project Breakdown:** Top projects by interaction count
+
+### Config Version Control
+- **Auto-Snapshots:** Every config save is automatically versioned in `~/.ai-dex/history/`
+- **Diff Viewer:** Color-coded unified diffs showing exactly what changed between revisions
+- **One-Click Restore:** Roll back to any previous config version (current state is snapshotted first, so restore is reversible)
+
+### Memory Browser
+- **Unified View:** Browse CLAUDE.md and GEMINI.md memory files across all projects
+- **Global + Per-Project:** See both global memory and project-specific context
+
+### Automatic Dependency Management
+- **Runtime Detection:** Identifies missing runtimes (`npx`, `uvx`, `python`) when health-checking MCP servers
+- **One-Click Install:** Offers to install missing dependencies (Homebrew on macOS, curl scripts for uv)
 
 ## 🛠 Supported Tools
 
@@ -28,10 +60,13 @@ AI Dex automatically detects and manages:
 
 ## 🏗 Architecture
 
-- **Frontend:** React 19 + TypeScript + Vite.
-- **Backend:** Rust (Tauri v2).
-- **Styling:** Custom Vanilla CSS for a lightweight, native-feeling dark mode experience.
-- **Storage:** Direct integration with local config paths (`~/.claude/settings.json`, `~/.agents/skills`, etc.).
+- **Frontend:** React 19 + TypeScript + Vite
+- **Backend:** Rust (Tauri v2)
+- **Styling:** Custom vanilla CSS with Plus Jakarta Sans and JetBrains Mono (bundled, no CDN)
+- **Charts:** Recharts for data visualization
+- **Icons:** Lucide React
+- **Storage:** Direct integration with local config paths, snapshots in `~/.ai-dex/`
+- **Cross-Platform:** macOS, Windows, and Linux path support for Claude Desktop configs
 
 ## 🚀 Getting Started
 
@@ -61,8 +96,6 @@ AI Dex automatically detects and manages:
 
 ### Building for Release
 
-To build a standalone executable for your platform:
-
 ```bash
 pnpm tauri build
 ```
@@ -70,16 +103,13 @@ Compiled binaries will be found in `src-tauri/target/release/bundle`.
 
 ## 🔍 Troubleshooting
 
-- **MCP Server Test Fails:** Ensure the command (e.g., `npx`, `uvx`) is in your system `PATH`. AI Dex runs these commands as they would be executed by your terminal.
+- **MCP Server Test Fails:** Ensure the command (e.g., `npx`, `uvx`) is in your system `PATH`. Use the "Health Check All" button to diagnose all servers at once, and the "Install" button to fix missing runtimes.
 - **Permissions:** AI Dex requires read/write access to your home directory configuration folders (`~/.claude`, `~/.agents`, etc.) to manage settings.
+- **Config Mistakes:** Use the History panel to view diffs and restore any previous config version.
 
-## 🗺 Future Roadmap (Future Scopes)
+## 🗺 Roadmap
 
-- [ ] **Remote MCP Directory:** Integration with a community-maintained list of MCP servers for one-click discovery.
-- [ ] **Automatic Dependency Management:** Detect and offer to install missing dependencies (like `pnpm` or `uv`) for MCP servers.
-- [ ] **MCP Inspector Integration:** Launch the MCP Inspector directly from AI Dex for deep debugging.
 - [ ] **Multi-Profile Support:** Switch between different configuration profiles (e.g., Work vs. Personal) for all tools at once.
-- [ ] **Skill Marketplace:** A built-in browseable interface for community-shared skills with ratings and documentation previews.
 - [ ] **AI-Powered Diagnostics:** Use local LLMs to analyze MCP error logs and suggest fixes.
 
 ## 🤝 Contributing
