@@ -108,9 +108,68 @@ export interface DiffResult {
 
 export interface DiagnosticResult {
   success: boolean;
+  status: string;
   message: string;
+  failureKind?: string;
   suggestion?: string;
   missingRuntime?: string;
+  details: string[];
+  evidence: DiagnosticEvidence[];
+  repairActions: DiagnosticAction[];
+  checkedAt: string;
+}
+
+export interface DiagnosticEvidence {
+  label: string;
+  value: string;
+}
+
+export interface DiagnosticAction {
+  kind: string;
+  label: string;
+  description?: string;
+  runtime?: string;
+  revisionFilename?: string;
+}
+
+export interface DiagnosticHistoryEntry {
+  checkedAt: string;
+  status: string;
+  message: string;
+  failureKind?: string;
+  revisionFilename?: string;
+}
+
+export interface SuspiciousConfigChange {
+  label: string;
+  previousValue: string;
+  currentValue: string;
+}
+
+export interface LastKnownGoodDiagnostic {
+  checkedAt: string;
+  result: DiagnosticResult;
+  revisionFilename?: string;
+  suspiciousChanges: SuspiciousConfigChange[];
+}
+
+export interface ServerDiagnosticHistory {
+  serverName: string;
+  runs: DiagnosticHistoryEntry[];
+  lastKnownGood?: LastKnownGoodDiagnostic;
+}
+
+export interface DiagnosticAdvice {
+  title: string;
+  summary: string;
+  confidence: string;
+  reasons: string[];
+  recommendedSteps: string[];
+}
+
+export interface ExportedDiagnosticBundle {
+  path: string;
+  preview: string;
 }
 
 export interface DexData {

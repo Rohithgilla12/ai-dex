@@ -1,4 +1,5 @@
 mod commands;
+mod diagnostics;
 mod scanner;
 mod types;
 mod utils;
@@ -23,6 +24,9 @@ pub fn run() {
             create_skill,
             test_mcp_connection,
             check_all_mcp_health,
+            get_mcp_diagnostic_history,
+            get_mcp_diagnostic_advice,
+            export_mcp_bug_bundle,
             install_runtime,
             sync_mcp_to_all_tools,
             get_usage_stats,

@@ -1,17 +1,23 @@
-import { useState, useEffect, useMemo } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
-import {
+import AppSidebar from "./AppSidebar";
+import ToolManagementView from "./ToolManagementView";
+import type {
+  ConfigRevision,
   DexData,
-  UsageStats,
-  ViewMode,
+  DiagnosticAdvice,
+  DiagnosticResult,
+  DiffResult,
+  ExportedDiagnosticBundle,
   GlobalSkillSearchResult,
   MarketplaceServer,
-  DiagnosticResult,
+  McpServerConfig,
   MemoryEntry,
-  ConfigRevision,
-  DiffResult
+  ServerDiagnosticHistory,
+  UsageStats,
+  ViewMode,
 } from "./types";
 import {
   AreaChart,
@@ -26,38 +32,110 @@ import {
   Cell
 } from "recharts";
 import {
-  Activity,
   Layers,
-  Cpu,
-  Target,
   RefreshCw,
-  Plus,
   Search,
   MessageSquare,
   Zap,
-  Store,
   Terminal as TerminalIcon,
-  Play,
   CheckCircle2,
-  DollarSign,
   TrendingUp,
   Lightbulb,
   ShieldAlert,
   Clock,
   History,
-  Brain,
   ChevronRight,
-  Copy,
-  Trash2,
   GitPullRequest,
-  Package,
   FolderOpen,
-  HeartPulse,
-  Download,
-  AlertTriangle,
-  Microscope,
-  RotateCcw
 } from "lucide-react";
+
+const DAILY_LIMIT = 10;
+const MAX_MCP_LOG_LINES = 100;
+const CHART_GRID_STROKE = "rgba(255,255,255,0.04)";
+const BASE_CHART_TOOLTIP_STYLE = {
+  background: "#1a1a20",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: "8px",
+  boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+} as const;
+const SMALL_CHART_TOOLTIP_STYLE = {
+  ...BASE_CHART_TOOLTIP_STYLE,
+  fontSize: "12px",
+} as const;
+
+function parseEnvString(input: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (!input.trim()) {
+    return env;
+  }
+
+  for (const pair of input.split(",")) {
+    const eqIdx = pair.indexOf("=");
+    if (eqIdx > 0) {
+      env[pair.slice(0, eqIdx).trim()] = pair.slice(eqIdx + 1).trim();
+    }
+  }
+
+  return env;
+}
+
+function getLogServerName(line: string): string | null {
+  const structured = line.match(/^\[([^\]]+)\]\[(stdout|stderr)\]/);
+  if (structured) {
+    return structured[1];
+  }
+
+  const lifecycle = line.match(/^>>> \[([^\]]+)\]/);
+  return lifecycle ? lifecycle[1] : null;
+}
+
+function appendMcpLogEntry(previousLogs: string[] | undefined, line: string): string[] {
+  return [...(previousLogs ?? []).slice(-(MAX_MCP_LOG_LINES - 1)), line];
+}
+
+function formatDiagnosticTimestamp(timestamp: string): string {
+  return timestamp.replace(/_/g, " at ").replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
+}
+
+function getCurrentBillingCycleLabel(now: Date = new Date()): string {
+  const start = new Date(now.getFullYear(), now.getMonth(), 23);
+  if (now.getDate() < 23) {
+    start.setMonth(start.getMonth() - 1);
+  }
+
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + 1);
+
+  return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+}
+
+function getMemoryLineClassName(line: string): string {
+  if (line.startsWith("#")) {
+    return "memory-line memory-line-heading";
+  }
+
+  if (line.startsWith("-")) {
+    return "memory-line memory-line-item";
+  }
+
+  return "memory-line memory-line-dim";
+}
+
+function getStatusDotState(limitProgress: number): "active" | "alert" {
+  return limitProgress > 90 ? "alert" : "active";
+}
+
+function getBudgetFillClassName(limitProgress: number): string {
+  if (limitProgress > 90) {
+    return "budget-bar-fill budget-bar-fill-danger";
+  }
+
+  if (limitProgress > 70) {
+    return "budget-bar-fill budget-bar-fill-warn";
+  }
+
+  return "budget-bar-fill budget-bar-fill-safe";
+}
 
 function App() {
   const [dexData, setDexData] = useState<DexData | null>(null);
@@ -90,21 +168,16 @@ function App() {
   const [isAddingMcp, setIsAddingMcp] = useState(false);
   const [editorMode, setEditorMode] = useState<"code" | "form">("form");
 
-  const [mcpLogs, setMcpLogs] = useState<string[]>([]);
+  const [mcpLogsByServer, setMcpLogsByServer] = useState<Record<string, string[]>>({});
   const [isDebugging, setIsDebugging] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<Record<string, DiagnosticResult>>({});
-
-  const [dailyLimit] = useState(10.0);
-
-  const parseEnvString = (s: string): Record<string, string> => {
-    const env: Record<string, string> = {};
-    if (!s.trim()) return env;
-    for (const pair of s.split(",")) {
-      const eqIdx = pair.indexOf("=");
-      if (eqIdx > 0) env[pair.slice(0, eqIdx).trim()] = pair.slice(eqIdx + 1).trim();
-    }
-    return env;
-  };
+  const [selectedDiagnosticServer, setSelectedDiagnosticServer] = useState<string | null>(null);
+  const [diagnosticHistories, setDiagnosticHistories] = useState<Record<string, ServerDiagnosticHistory>>({});
+  const [diagnosticAdvice, setDiagnosticAdvice] = useState<Record<string, DiagnosticAdvice>>({});
+  const [exportedBundles, setExportedBundles] = useState<Record<string, ExportedDiagnosticBundle>>({});
+  const [isLoadingDiagnosticContext, setIsLoadingDiagnosticContext] = useState(false);
+  const [isExportingBundle, setIsExportingBundle] = useState<string | null>(null);
+  const [assistantEnabled, setAssistantEnabled] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -122,7 +195,13 @@ function App() {
   useEffect(() => {
     fetchData();
     const unlisten = listen("mcp-log", (event) => {
-      setMcpLogs(prev => [...prev.slice(-100), event.payload as string]);
+      const line = event.payload as string;
+      const serverName = getLogServerName(line);
+      if (!serverName) return;
+      setMcpLogsByServer(prev => ({
+        ...prev,
+        [serverName]: appendMcpLogEntry(prev[serverName], line)
+      }));
     });
     return () => { unlisten.then(fn => fn()); };
   }, []);
@@ -146,12 +225,66 @@ function App() {
   const currentTool = viewMode === "tools" ? dexData?.tools[selectedIndex] : null;
   const currentRepo = viewMode === "repos" ? dexData?.repos[selectedIndex] : null;
 
+  const resetDiagnosticStateForTool = useCallback((): void => {
+    setDiagnostics({});
+    setDiagnosticHistories({});
+    setDiagnosticAdvice({});
+    setExportedBundles({});
+    setSelectedDiagnosticServer(null);
+    setIsDebugging(null);
+    setMcpLogsByServer({});
+  }, []);
+
+  useEffect(() => {
+    resetDiagnosticStateForTool();
+  }, [currentTool?.configPath]);
+
+  useEffect(() => {
+    if (!currentTool?.mcpServers) {
+      setSelectedDiagnosticServer(null);
+      return;
+    }
+    if (selectedDiagnosticServer && !currentTool.mcpServers[selectedDiagnosticServer]) {
+      setSelectedDiagnosticServer(null);
+    }
+  }, [currentTool, selectedDiagnosticServer]);
+
   const filteredMcp = useMemo(() => {
     if (!currentTool?.mcpServers) return [];
     return Object.entries(currentTool.mcpServers).filter(([name]) =>
       name.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [currentTool, searchTerm]);
+
+  const selectedDiagnosticConfig = selectedDiagnosticServer && currentTool?.mcpServers
+    ? currentTool.mcpServers[selectedDiagnosticServer] ?? null
+    : null;
+  const selectedDiagnosticResult = selectedDiagnosticServer ? diagnostics[selectedDiagnosticServer] ?? null : null;
+  const selectedDiagnosticHistory = selectedDiagnosticServer ? diagnosticHistories[selectedDiagnosticServer] ?? null : null;
+  const selectedDiagnosticAdvice = selectedDiagnosticServer ? diagnosticAdvice[selectedDiagnosticServer] ?? null : null;
+  const selectedDiagnosticBundle = selectedDiagnosticServer ? exportedBundles[selectedDiagnosticServer] ?? null : null;
+  const activeMcpLogs = isDebugging ? mcpLogsByServer[isDebugging] ?? [] : [];
+
+  useEffect(() => {
+    if (!assistantEnabled || !selectedDiagnosticServer || !selectedDiagnosticResult || !currentTool?.configPath) return;
+    let cancelled = false;
+    const loadAdvice = async () => {
+      try {
+        const advice: DiagnosticAdvice = await invoke("get_mcp_diagnostic_advice", {
+          configPath: currentTool.configPath,
+          serverName: selectedDiagnosticServer,
+          result: selectedDiagnosticResult
+        });
+        if (!cancelled) {
+          setDiagnosticAdvice(prev => ({ ...prev, [selectedDiagnosticServer]: advice }));
+        }
+      } catch (err) {
+        console.error(`Diagnostic advice failed: ${err}`);
+      }
+    };
+    loadAdvice();
+    return () => { cancelled = true; };
+  }, [assistantEnabled, currentTool?.configPath, selectedDiagnosticResult, selectedDiagnosticServer]);
 
   const filteredActivity = useMemo(() => {
     if (!usageStats) return [];
@@ -160,7 +293,24 @@ function App() {
     return usageStats.dailyActivity;
   }, [usageStats, timeRange]);
 
+  const modelUsageData = useMemo(() => {
+    if (!usageStats) return [];
+    return Object.entries(usageStats.modelUsageStats)
+      .map(([name, stats]) => ({ name, cost: stats.estimatedCost }))
+      .sort((a, b) => b.cost - a.cost);
+  }, [usageStats]);
+
   const totalRequestsInRange = useMemo(() => filteredActivity.reduce((acc, curr) => acc + curr.count, 0), [filteredActivity]);
+  const maxCommonSequenceCount = useMemo(
+    () => Math.max(...usageStats?.commonSequences.map(sequence => sequence.count) ?? [], 1),
+    [usageStats]
+  );
+  const totalMemoryLines = useMemo(
+    () => memories.reduce((acc, memory) => acc + memory.lineCount, 0),
+    [memories]
+  );
+  const activeSearchValue = viewMode === "global_search" ? globalQuery : searchTerm;
+  const currentBillingCycleLabel = getCurrentBillingCycleLabel();
 
   const handleSave = async () => {
     if (!currentTool || !currentTool.configPath) return;
@@ -195,17 +345,72 @@ function App() {
     finally { setIsAddingMcp(false); }
   };
 
-  const handleTestMcp = async (name: string, command: string, args: string[]) => {
+  const loadDiagnosticContext = async (name: string, result?: DiagnosticResult) => {
+    if (!currentTool?.configPath) return;
+    setIsLoadingDiagnosticContext(true);
     try {
-      const result: DiagnosticResult = await invoke("test_mcp_connection", { command, args });
+      const history: ServerDiagnosticHistory = await invoke("get_mcp_diagnostic_history", {
+        configPath: currentTool.configPath,
+        serverName: name
+      });
+      setDiagnosticHistories(prev => ({ ...prev, [name]: history }));
+
+      const resultToAnalyze = result || diagnostics[name];
+      if (assistantEnabled && resultToAnalyze) {
+        const advice: DiagnosticAdvice = await invoke("get_mcp_diagnostic_advice", {
+          configPath: currentTool.configPath,
+          serverName: name,
+          result: resultToAnalyze
+        });
+        setDiagnosticAdvice(prev => ({ ...prev, [name]: advice }));
+      }
+    } catch (err) {
+      console.error(`Diagnostic context failed: ${err}`);
+    } finally {
+      setIsLoadingDiagnosticContext(false);
+    }
+  };
+
+  const handleSelectDiagnosticServer = async (name: string) => {
+    setSelectedDiagnosticServer(name);
+    await loadDiagnosticContext(name);
+  };
+
+  const handleTestMcp = async (name: string, server: McpServerConfig) => {
+    if (!currentTool?.configPath) return;
+    setSelectedDiagnosticServer(name);
+    try {
+      const result: DiagnosticResult = await invoke("test_mcp_connection", {
+        serverName: name,
+        configPath: currentTool.configPath,
+        server
+      });
       setDiagnostics(prev => ({ ...prev, [name]: result }));
+      await loadDiagnosticContext(name, result);
     } catch (err) { console.error(`Connection failed: ${err}`); }
   };
 
-  const handleDebugMcp = async (name: string, command: string, args: string[]) => {
-    setIsDebugging(name); setMcpLogs([`>>> Debugging ${name}...`, `>>> Command: ${command} ${args.join(" ")}`]);
-    try { await invoke("spawn_mcp_and_stream_logs", { command, args }); }
-    catch (err) { setMcpLogs(prev => [...prev, `>>> ERROR: ${err}`]); }
+  const handleDebugMcp = async (name: string, server: McpServerConfig) => {
+    setSelectedDiagnosticServer(name);
+    setIsDebugging(name);
+    setMcpLogsByServer(prev => ({
+      ...prev,
+      [name]: [`>>> [${name}] starting manual debug`]
+    }));
+    try {
+      await invoke("spawn_mcp_and_stream_logs", {
+        serverName: name,
+        command: server.command,
+        args: server.args,
+        env: server.env || null
+      });
+    }
+    catch (err) {
+      setMcpLogsByServer(prev => ({
+        ...prev,
+        [name]: [...(prev[name] ?? []), `>>> [${name}] ERROR: ${err}`]
+      }));
+    }
   };
 
   const handleInstallMarketplace = async (server: MarketplaceServer) => {
@@ -240,7 +445,7 @@ function App() {
     finally { setIsCreatingSkill(false); }
   };
 
-  const handleGlobalSearch = async (e?: React.FormEvent) => {
+  const handleGlobalSearch = async (e?: FormEvent) => {
     if (e) e.preventDefault(); if (!globalQuery.trim()) return;
     try {
       const results: GlobalSkillSearchResult[] = await invoke("search_global_skills", { query: globalQuery });
@@ -290,10 +495,20 @@ function App() {
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
 
   const handleHealthCheckAll = async () => {
+    if (!currentTool?.configPath) return;
     setIsCheckingHealth(true);
     try {
-      const results: Record<string, DiagnosticResult> = await invoke("check_all_mcp_health");
+      const results: Record<string, DiagnosticResult> = await invoke("check_all_mcp_health", {
+        configPath: currentTool.configPath
+      });
       setDiagnostics(results);
+      const nextSelected = selectedDiagnosticServer && results[selectedDiagnosticServer]
+        ? selectedDiagnosticServer
+        : Object.entries(results).find(([, result]) => !result.success)?.[0] || Object.keys(results)[0] || null;
+      if (nextSelected) {
+        setSelectedDiagnosticServer(nextSelected);
+        await loadDiagnosticContext(nextSelected, results[nextSelected]);
+      }
     } catch (err) { console.error(`Health check failed: ${err}`); }
     finally { setIsCheckingHealth(false); }
   };
@@ -311,6 +526,49 @@ function App() {
       alert(String(err));
     }
     finally { setInstallingRuntime(null); }
+  };
+
+  const handleExportBundle = async (name: string, server: McpServerConfig, result: DiagnosticResult) => {
+    if (!currentTool?.configPath) return;
+    setIsExportingBundle(name);
+    try {
+      const bundle: ExportedDiagnosticBundle = await invoke("export_mcp_bug_bundle", {
+        configPath: currentTool.configPath,
+        serverName: name,
+        server,
+        result,
+        recentLogs: mcpLogsByServer[name] || []
+      });
+      setExportedBundles(prev => ({ ...prev, [name]: bundle }));
+      alert(`Diagnostic bundle exported to ${bundle.path}`);
+    } catch (err) {
+      alert(String(err));
+    } finally {
+      setIsExportingBundle(null);
+    }
+  };
+
+  const handleRepairAction = async (name: string, server: McpServerConfig, kind: string, runtime?: string, revisionFilename?: string) => {
+    if (kind === "install_runtime" && runtime) {
+      await handleInstallRuntime(runtime);
+      return;
+    }
+    if (kind === "debug_server") {
+      await handleDebugMcp(name, server);
+      return;
+    }
+    if (kind === "inspect_server") {
+      await handleLaunchInspector(name);
+      return;
+    }
+    if (kind === "restore_revision" && revisionFilename) {
+      await handleRestoreRevision(revisionFilename);
+      return;
+    }
+    if (kind === "rerun_check") {
+      await handleTestMcp(name, server);
+      return;
+    }
   };
 
   const [revisions, setRevisions] = useState<ConfigRevision[]>([]);
@@ -338,6 +596,10 @@ function App() {
     if (!currentTool?.configPath) return;
     await invoke("restore_config_revision", { path: currentTool.configPath, revisionFilename });
     await fetchData();
+    setDiagnostics({});
+    setDiagnosticHistories({});
+    setDiagnosticAdvice({});
+    setExportedBundles({});
     setShowHistory(false);
     setActiveDiff(null);
   };
@@ -367,7 +629,9 @@ function App() {
     finally { setIsSearchingMarketplace(false); }
   };
 
-  const limitProgress = usageStats ? (usageStats.estimatedCostToday / dailyLimit) * 100 : 0;
+  const limitProgress = usageStats ? (usageStats.estimatedCostToday / DAILY_LIMIT) * 100 : 0;
+  const statusDotState = getStatusDotState(limitProgress);
+  const budgetFillClassName = getBudgetFillClassName(limitProgress);
 
   const nav = (mode: ViewMode, index?: number) => {
     setViewMode(mode);
@@ -375,65 +639,23 @@ function App() {
     setSearchTerm("");
   };
 
-  if (!dexData) return <div className="main-content" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>Initializing Dex...</div>;
+  if (!dexData) {
+    return <div className="main-content" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>Initializing Dex...</div>;
+  }
 
   return (
     <div className="app-container">
-      <aside className="sidebar">
-        <div className="sidebar-header">Insights</div>
-        <div className={`sidebar-item ${viewMode === "dashboard" ? "active" : ""}`} onClick={() => nav("dashboard")}>
-          <Activity size={15} /> Usage Dashboard
-        </div>
-        <div className={`sidebar-item ${viewMode === "costs" ? "active" : ""}`} onClick={() => nav("costs")}>
-          <DollarSign size={15} /> AI Cost Center
-        </div>
-        <div className={`sidebar-item ${viewMode === "marketplace" ? "active" : ""}`} onClick={() => nav("marketplace")}>
-          <Store size={15} /> MCP Marketplace
-        </div>
-
-        <div className="sidebar-header">Workspace</div>
-        <div className={`sidebar-item ${viewMode === "memory" ? "active" : ""}`} onClick={() => nav("memory")}>
-          <Brain size={15} /> Memory
-        </div>
-
-        <div className="sidebar-header">Core Tools</div>
-        {dexData.tools.map((tool, index) => (
-          <div key={tool.name} className={`sidebar-item ${viewMode === "tools" && index === selectedIndex ? "active" : ""}`} onClick={() => nav("tools", index)}>
-            <Cpu size={15} /> {tool.name}
-          </div>
-        ))}
-
-        <div className="sidebar-header">Skill Repositories</div>
-        {dexData.repos.map((repo, index) => (
-          <div key={repo.name} className={`sidebar-item ${viewMode === "repos" && index === selectedIndex ? "active" : ""}`} onClick={() => nav("repos", index)}>
-            <Layers size={15} /> {repo.name}
-          </div>
-        ))}
-        <div className={`sidebar-item sidebar-item-add ${viewMode === "add_repo" ? "active" : ""}`} onClick={() => nav("add_repo")}>
-          <Plus size={15} /> Add Repository
-        </div>
-
-        <div className="sidebar-header">Create</div>
-        <div className={`sidebar-item sidebar-item-add ${viewMode === "create_skill" ? "active" : ""}`} onClick={() => nav("create_skill")}>
-          <Target size={15} /> Create Skill
-        </div>
-
-        <div className="sidebar-header">Discover</div>
-        <div className={`sidebar-item ${viewMode === "global_search" ? "active" : ""}`} onClick={() => nav("global_search")}>
-          <Search size={15} /> Find Skills
-        </div>
-      </aside>
+      <AppSidebar dexData={dexData} viewMode={viewMode} selectedIndex={selectedIndex} onNavigate={nav} />
 
       <main className="main-content">
         <header className="search-bar-container">
           <input
             className="search-input"
             placeholder="Search..."
-            value={viewMode === "global_search" ? globalQuery : searchTerm}
+            value={activeSearchValue}
             onChange={(e) => viewMode === "global_search" ? setGlobalQuery(e.target.value) : setSearchTerm(e.target.value)}
             onKeyDown={(e) => viewMode === "global_search" && e.key === "Enter" && handleGlobalSearch()}
             disabled={viewMode === "add_repo"}
-            autoFocus
           />
           {currentTool?.schemaContent && viewMode === "tools" && <span className="badge-pill">Schema Verified</span>}
         </header>
@@ -489,9 +711,9 @@ function App() {
                           <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/>
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} vertical={false} />
                       <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: 'var(--text-muted)', fontSize: 10}} minTickGap={30} />
-                      <Tooltip contentStyle={{ background: '#1a1a20', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }} />
+                      <Tooltip contentStyle={SMALL_CHART_TOOLTIP_STYLE} />
                       <Area type="monotone" dataKey="count" stroke="var(--accent)" strokeWidth={2} fillOpacity={1} fill="url(#colorCount)" animationDuration={1200} />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -500,9 +722,9 @@ function App() {
                   <h3 className="section-title">Peak Distribution</h3>
                   <ResponsiveContainer width="100%" height="85%">
                     <BarChart data={usageStats.hourlyActivity.map((count, hour) => ({ hour: `${hour}h`, count }))}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} vertical={false} />
                       <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{fill: 'var(--text-muted)', fontSize: 9}} interval={3} />
-                      <Tooltip contentStyle={{ background: '#1a1a20', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }} cursor={{fill: 'rgba(255,255,255,0.03)'}} />
+                      <Tooltip contentStyle={SMALL_CHART_TOOLTIP_STYLE} cursor={{fill: 'rgba(255,255,255,0.03)'}} />
                       <Bar dataKey="count" fill="var(--accent)" radius={[3, 3, 0, 0]} opacity={0.8} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -512,11 +734,10 @@ function App() {
               <div className="chart-container">
                 <h3 className="section-title" style={{ marginBottom: "18px" }}>Common Sequences</h3>
                 <div className="sequence-list">
-                  {usageStats.commonSequences.map((seq, i) => {
-                    const max = Math.max(...usageStats.commonSequences.map(s => s.count), 1);
-                    const percentage = (seq.count / max) * 100;
+                  {usageStats.commonSequences.map((seq) => {
+                    const percentage = (seq.count / maxCommonSequenceCount) * 100;
                     return (
-                      <div key={i} className="sequence-item">
+                      <div key={seq.sequence} className="sequence-item">
                         <div className="sequence-meta">
                           <span className="sequence-name">{seq.sequence}</span>
                           <span className="sequence-count">{seq.count}</span>
@@ -580,16 +801,16 @@ function App() {
                 <div className="chart-container chart-container-md">
                   <h3 className="section-title">Spend by Model</h3>
                   <ResponsiveContainer width="100%" height="90%">
-                    <BarChart layout="vertical" data={Object.entries(usageStats.modelUsageStats).map(([name, stats]) => ({ name, cost: stats.estimatedCost })).sort((a,b) => b.cost - a.cost)}>
+                    <BarChart layout="vertical" data={modelUsageData}>
                       <XAxis type="number" hide />
                       <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: 'var(--text-main)', fontSize: 11}} width={140} />
                       <Tooltip
-                        contentStyle={{ background: '#1a1a20', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
+                        contentStyle={BASE_CHART_TOOLTIP_STYLE}
                         formatter={(value: unknown) => [`$${Number(value).toFixed(3)}`, 'Cost']}
                       />
                       <Bar dataKey="cost" fill="var(--accent)" radius={[0, 4, 4, 0]}>
-                        {Object.entries(usageStats.modelUsageStats).map((_, index) => (
-                          <Cell key={`cell-${index}`} fillOpacity={1 - (index * 0.15)} />
+                        {modelUsageData.map(({ name }, index) => (
+                          <Cell key={name} fillOpacity={1 - (index * 0.15)} />
                         ))}
                       </Bar>
                     </BarChart>
@@ -621,16 +842,7 @@ function App() {
 
                     <div className="billing-block">
                       <div className="billing-label">Current Billing Cycle</div>
-                      <div className="billing-value">
-                        {(() => {
-                          const now = new Date();
-                          const start = new Date(now.getFullYear(), now.getMonth(), 23);
-                          if (now.getDate() < 23) start.setMonth(start.getMonth() - 1);
-                          const end = new Date(start);
-                          end.setMonth(end.getMonth() + 1);
-                          return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
-                        })()}
-                      </div>
+                      <div className="billing-value">{currentBillingCycleLabel}</div>
                     </div>
                   </div>
                 </div>
@@ -643,34 +855,41 @@ function App() {
               <div className="page-header">
                 <div>
                   <h2 className="page-title">Memory</h2>
-                  <p className="page-subtitle">{memories.reduce((acc, m) => acc + m.lineCount, 0)} lines of context across {memories.length} projects.</p>
+                  <p className="page-subtitle">{totalMemoryLines} lines of context across {memories.length} projects.</p>
                 </div>
               </div>
 
               <div className="memory-list">
-                {memories.map((mem, i) => (
-                  <div key={i} className="memory-card">
-                    <div className="memory-card-header">
-                      <div>
-                        <div className="memory-project-name">
-                          <span className="memory-project-label">{mem.projectName}</span>
-                          <ChevronRight size={14} color="var(--text-muted)" />
-                        </div>
-                        <div className="memory-project-meta">{mem.lineCount} lines &middot; {mem.path}</div>
-                      </div>
-                    </div>
-                    <div className="memory-card-body">
-                      <h4 className="memory-section-label">Project Memory</h4>
-                      <div className="memory-content">
-                        {mem.contentPreview.map((line, li) => (
-                          <div key={li} className={`memory-line ${line.startsWith('#') ? 'memory-line-heading' : line.startsWith('-') ? 'memory-line-item' : 'memory-line-dim'}`}>
-                            {line}
+                {memories.map((mem) => {
+                  const lineOccurrences = new Map<string, number>();
+                  return (
+                    <div key={mem.path} className="memory-card">
+                      <div className="memory-card-header">
+                        <div>
+                          <div className="memory-project-name">
+                            <span className="memory-project-label">{mem.projectName}</span>
+                            <ChevronRight size={14} color="var(--text-muted)" />
                           </div>
-                        ))}
+                          <div className="memory-project-meta">{mem.lineCount} lines &middot; {mem.path}</div>
+                        </div>
+                      </div>
+                      <div className="memory-card-body">
+                        <h4 className="memory-section-label">Project Memory</h4>
+                        <div className="memory-content">
+                          {mem.contentPreview.map((line) => {
+                            const occurrence = (lineOccurrences.get(line) ?? 0) + 1;
+                            lineOccurrences.set(line, occurrence);
+                            return (
+                              <div key={`${mem.path}-${line}-${occurrence}`} className={getMemoryLineClassName(line)}>
+                                {line}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           )}
@@ -736,197 +955,72 @@ function App() {
           )}
 
           {viewMode === "tools" && currentTool && (
-            <section className="dashboard-view">
-              <div className="page-header">
-                <div>
-                  <h2 className="page-title">{currentTool.name}</h2>
-                  <p className="page-subtitle">
-                    {currentTool.skills.length} skill{currentTool.skills.length !== 1 ? "s" : ""}
-                    {currentTool.mcpServers ? ` · ${Object.keys(currentTool.mcpServers).length} MCP server${Object.keys(currentTool.mcpServers).length !== 1 ? "s" : ""}` : ""}
-                  </p>
-                </div>
-              </div>
-
-              {currentTool.skills.length > 0 ? (
-                <>
-                  <h3 className="section-title">Installed Skills</h3>
-                  <div className="skills-grid" style={{ marginBottom: "28px" }}>
-                    {currentTool.skills.map(s => (
-                      <div key={s.name} className="skill-card">
-                        <div className="skill-name">{s.name}</div>
-                        {s.description && <p className="skill-desc">{s.description}</p>}
-                        <button className="mcp-action-btn mcp-action-btn-danger" style={{ marginTop: "10px" }} onClick={() => handleUninstallSkill(s.name)}>
-                          <Trash2 size={11} /> Uninstall
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : !currentTool.configPath ? (
-                <div className="empty-state">
-                  <Package size={40} strokeWidth={1} />
-                  <p>No skills installed for {currentTool.name}.</p>
-                  <button className="btn-modern btn-accent" onClick={() => nav("global_search")}>Find Skills</button>
-                </div>
-              ) : null}
-
-              {currentTool.configPath && (
-                <>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                    <h3 className="section-title" style={{ marginBottom: 0 }}>MCP Servers</h3>
-                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                      <button className="mcp-action-btn" onClick={handleHealthCheckAll} disabled={isCheckingHealth}>
-                        <HeartPulse size={12} /> {isCheckingHealth ? "Checking..." : "Health Check All"}
-                      </button>
-                      <button className="mcp-action-btn" onClick={handleShowHistory}>
-                        <History size={12} /> History
-                      </button>
-                      <div className="editor-toggle">
-                        <button onClick={() => setEditorMode("form")} className={`editor-toggle-btn ${editorMode === "form" ? "active" : ""}`}>Form</button>
-                        <button onClick={() => setEditorMode("code")} className={`editor-toggle-btn ${editorMode === "code" ? "active" : ""}`}>JSON</button>
-                      </div>
-                    </div>
-                  </div>
-                  {editorMode === "form" && (
-                    <>
-                      <div className="form-container form-container-dashed">
-                        <div className="form-grid-mcp-2">
-                          <input className="repo-input repo-input-inline" placeholder="Name" value={newMcpName} onChange={e => setNewMcpName(e.target.value)} />
-                          <input className="repo-input repo-input-inline" placeholder="Command (npx, uvx, ...)" value={newMcpCommand} onChange={e => setNewMcpCommand(e.target.value)} />
-                          <input className="repo-input repo-input-inline" placeholder="Args (space separated)" value={newMcpArgs} onChange={e => setNewMcpArgs(e.target.value)} />
-                          <input className="repo-input repo-input-inline" placeholder="Env (KEY=val, KEY2=val2)" value={newMcpEnv} onChange={e => setNewMcpEnv(e.target.value)} />
-                          <button className="btn-modern" disabled={isAddingMcp} onClick={() => handleAddMcp()}>Add</button>
-                        </div>
-                      </div>
-                      <div className="mcp-container">
-                        <table className="mcp-table">
-                          <thead>
-                            <tr><th>Server</th><th>Command</th><th>Status</th><th style={{ textAlign: "right" }}>Actions</th></tr>
-                          </thead>
-                          <tbody>
-                            {filteredMcp.map(([name, config]) => {
-                              const diag = diagnostics[name];
-                              return (
-                              <tr key={name}>
-                                <td>{name}</td>
-                                <td><code>{config.command}</code></td>
-                                <td>
-                                  {diag ? (
-                                    <div className="diag-inline">
-                                      {diag.success
-                                        ? <span className="diag-ok"><CheckCircle2 size={12} /> OK</span>
-                                        : <span className="diag-fail">
-                                            <AlertTriangle size={12} /> {diag.message}
-                                            {diag.missingRuntime && (
-                                              <button
-                                                className="mcp-action-btn diag-install-btn"
-                                                disabled={installingRuntime === diag.missingRuntime}
-                                                onClick={() => handleInstallRuntime(diag.missingRuntime!)}
-                                              >
-                                                <Download size={11} /> {installingRuntime === diag.missingRuntime ? "Installing..." : `Install ${diag.missingRuntime}`}
-                                              </button>
-                                            )}
-                                          </span>
-                                      }
-                                      {diag.suggestion && !diag.success && <span className="diag-suggestion">{diag.suggestion}</span>}
-                                    </div>
-                                  ) : (
-                                    <span className="text-muted" style={{ fontSize: "11px" }}>Not checked</span>
-                                  )}
-                                </td>
-                                <td>
-                                  <div className="mcp-actions">
-                                    <button onClick={() => handleTestMcp(name, config.command, config.args)} className="mcp-action-btn"><Zap size={12} /> Test</button>
-                                    <button onClick={() => handleDebugMcp(name, config.command, config.args)} className="mcp-action-btn"><Play size={12} /> Debug</button>
-                                    <button onClick={() => handleLaunchInspector(name)} className="mcp-action-btn"><Microscope size={12} /> Inspect</button>
-                                    <button onClick={() => handleSyncMcp(name, config)} className="mcp-action-btn"><Copy size={12} /> Sync</button>
-                                    <button onClick={() => handleDeleteMcp(name)} className="mcp-action-btn mcp-action-btn-danger"><Trash2 size={12} /></button>
-                                  </div>
-                                </td>
-                              </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                      {isDebugging && (
-                        <div className="debug-panel">
-                          <div className="debug-panel-header">
-                            <div className="debug-panel-label">
-                              <TerminalIcon size={14} /> Logs: {isDebugging}
-                            </div>
-                            <button className="debug-close-btn" onClick={() => { setIsDebugging(null); setMcpLogs([]); }}>Close</button>
-                          </div>
-                          <div className="debug-panel-body">
-                            {mcpLogs.map((log, i) => <div key={i}>{log}</div>)}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {editorMode === "code" && (
-                    <div>
-                      <div className="editor-wrapper">
-                        <textarea className="config-editor" value={editingContent} onChange={(e) => setEditingContent(e.target.value)} />
-                      </div>
-                      <div className="footer-actions">
-                        <button className="btn-modern" onClick={handleSave}>Save</button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {showHistory && (
-                <div className="history-panel">
-                  <div className="history-panel-header">
-                    <h3 className="section-title" style={{ marginBottom: 0 }}>
-                      <History size={14} /> Config History
-                    </h3>
-                    <button className="debug-close-btn" onClick={() => { setShowHistory(false); setActiveDiff(null); }}>Close</button>
-                  </div>
-                  <div className="history-panel-body">
-                    <div className="history-list">
-                      {revisions.length === 0 && <p className="text-muted" style={{ padding: "20px", textAlign: "center" }}>No revisions yet. Changes are tracked automatically on save.</p>}
-                      {revisions.map(rev => {
-                        const ts = rev.timestamp.replace(/_/g, " at ").replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
-                        return (
-                          <div key={rev.filename} className={`history-item ${activeDiffRevision === rev.filename ? "active" : ""}`}>
-                            <div className="history-item-info">
-                              <span className="history-item-time">{ts}</span>
-                              <span className="history-item-size">{(rev.size / 1024).toFixed(1)} KB</span>
-                            </div>
-                            <div className="history-item-actions">
-                              <button className="mcp-action-btn" onClick={() => handleViewDiff(rev.filename)}>Diff</button>
-                              <button className="mcp-action-btn" onClick={() => handleRestoreRevision(rev.filename)}>
-                                <RotateCcw size={11} /> Restore
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {activeDiff && (
-                      <div className="diff-viewer">
-                        <div className="diff-viewer-header">
-                          <span>Changes from {activeDiffRevision?.replace(".snapshot", "")} to current</span>
-                        </div>
-                        <div className="diff-viewer-body">
-                          {activeDiff.hunks.map((hunk, i) => (
-                            <div key={i} className={`diff-line diff-line-${hunk.kind}`}>
-                              <span className="diff-line-marker">
-                                {hunk.kind === "add" ? "+" : hunk.kind === "remove" ? "-" : " "}
-                              </span>
-                              <span>{hunk.content || "\u00A0"}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </section>
+            <ToolManagementView
+              currentTool={currentTool}
+              form={{
+                editingContent,
+                newMcpName,
+                newMcpCommand,
+                newMcpArgs,
+                newMcpEnv,
+                isAddingMcp,
+                editorMode,
+              }}
+              diagnosticsState={{
+                filteredMcp,
+                diagnostics,
+                selectedDiagnosticServer,
+                selectedDiagnosticConfig,
+                selectedDiagnosticResult,
+                selectedDiagnosticHistory,
+                selectedDiagnosticAdvice,
+                selectedDiagnosticBundle,
+                assistantEnabled,
+                isLoadingDiagnosticContext,
+                isExportingBundle: isExportingBundle === selectedDiagnosticServer,
+                isCheckingHealth,
+                installingRuntime,
+                isDebugging,
+                activeMcpLogs,
+              }}
+              historyState={{
+                revisions,
+                showHistory,
+                activeDiff,
+                activeDiffRevision,
+              }}
+              actions={{
+                onFindSkills: () => nav("global_search"),
+                onHealthCheckAll: handleHealthCheckAll,
+                onShowHistory: handleShowHistory,
+                onSetEditorMode: setEditorMode,
+                onNewMcpNameChange: setNewMcpName,
+                onNewMcpCommandChange: setNewMcpCommand,
+                onNewMcpArgsChange: setNewMcpArgs,
+                onNewMcpEnvChange: setNewMcpEnv,
+                onAddMcp: () => { void handleAddMcp(); },
+                onSelectDiagnosticServer: (name) => { void handleSelectDiagnosticServer(name); },
+                onInstallRuntime: (runtime) => { void handleInstallRuntime(runtime); },
+                onTestMcp: (name, config) => { void handleTestMcp(name, config); },
+                onDebugMcp: (name, config) => { void handleDebugMcp(name, config); },
+                onLaunchInspector: (serverName) => { void handleLaunchInspector(serverName); },
+                onSyncMcp: (name, config) => { void handleSyncMcp(name, config); },
+                onDeleteMcp: (name) => { void handleDeleteMcp(name); },
+                onUninstallSkill: (id) => { void handleUninstallSkill(id); },
+                onToggleAssistant: () => setAssistantEnabled(prev => !prev),
+                onExportBundle: (name, server, result) => { void handleExportBundle(name, server, result); },
+                onRepairAction: (name, server, kind, runtime, revisionFilename) => {
+                  void handleRepairAction(name, server, kind, runtime, revisionFilename);
+                },
+                onRestoreRevision: (revisionFilename) => { void handleRestoreRevision(revisionFilename); },
+                onCloseDebug: () => { setIsDebugging(null); },
+                onCloseHistory: () => { setShowHistory(false); setActiveDiff(null); },
+                onViewDiff: (revisionFilename) => { void handleViewDiff(revisionFilename); },
+                onEditingContentChange: setEditingContent,
+                onSave: () => { void handleSave(); },
+              }}
+              formatDiagnosticTimestamp={formatDiagnosticTimestamp}
+            />
           )}
 
           {viewMode === "add_repo" && (
@@ -990,18 +1084,18 @@ function App() {
       <footer className="status-bar">
         <div className="status-bar-inner">
           <div className="status-indicator">
-            <div className={`status-dot ${limitProgress > 90 ? 'alert' : 'active'}`} />
+            <div className={`status-dot ${statusDotState}`} />
             <span className="status-label">SYSTEM READY</span>
           </div>
           <div className="budget-section">
             <span className="budget-label">DAILY BUDGET</span>
             <div className="budget-bar-track">
               <div
-                className={`budget-bar-fill ${limitProgress > 90 ? 'budget-bar-fill-danger' : limitProgress > 70 ? 'budget-bar-fill-warn' : 'budget-bar-fill-safe'}`}
+                className={budgetFillClassName}
                 style={{ width: `${Math.min(limitProgress, 100)}%` }}
               />
             </div>
-            <span className="budget-amount">${usageStats?.estimatedCostToday.toFixed(2)} / ${dailyLimit.toFixed(0)}</span>
+            <span className="budget-amount">${usageStats?.estimatedCostToday.toFixed(2)} / ${DAILY_LIMIT.toFixed(0)}</span>
           </div>
           <div className="status-right">
             {limitProgress > 80 && (

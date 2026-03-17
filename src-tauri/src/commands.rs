@@ -1,5 +1,6 @@
 use std::fs;
 use std::process::Command;
+use crate::diagnostics::*;
 use crate::types::*;
 use crate::utils::*;
 use crate::scanner::*;
@@ -358,58 +359,82 @@ pub fn create_skill(name: String, description: String, is_claude: bool) -> Resul
 }
 
 #[tauri::command]
-pub fn test_mcp_connection(command: String, args: Vec<String>) -> DiagnosticResult {
-    let path_check = Command::new("which").arg(&command).output();
-    if let Ok(output) = path_check {
-        if !output.status.success() {
-            let suggestion = match command.as_str() {
-                "npx" => Some("Node.js is not installed. Install it from nodejs.org".to_string()),
-                "uvx" | "uv" => Some("uv is not installed. Run 'curl -LsSf https://astral.sh/uv/install.sh | sh'".to_string()),
-                "python3" | "python" => Some("Python is not installed or not in PATH.".to_string()),
-                _ => Some(format!("The command '{}' was not found in your system PATH.", command)),
-            };
-            return DiagnosticResult {
-                success: false,
-                message: format!("Binary '{}' not found.", command),
-                suggestion,
-                missing_runtime: Some(command),
-            };
-        }
-    }
-
-    match Command::new(&command).args(&args).spawn() {
-        Ok(mut child) => {
-            let _ = child.kill();
-            DiagnosticResult {
-                success: true,
-                message: "Connection successful. Command is executable.".into(),
-                suggestion: None,
-                missing_runtime: None,
-            }
-        }
-        Err(e) => DiagnosticResult {
-            success: false,
-            message: format!("Failed to spawn process: {}", e),
-            suggestion: Some("Ensure the command and arguments are correct.".into()),
-            missing_runtime: None,
-        },
-    }
+pub fn test_mcp_connection(
+    server_name: String,
+    config_path: String,
+    server: McpServerConfig,
+) -> DiagnosticResult {
+    let result = run_diagnostic(Some(&config_path), &server_name, &server);
+    let base_dir = get_home_path().join(".ai-dex");
+    let _ = record_diagnostic_run(&base_dir, &config_path, &server_name, &server, &result);
+    result
 }
 
 #[tauri::command]
-pub fn check_all_mcp_health() -> HashMap<String, DiagnosticResult> {
+pub fn check_all_mcp_health(config_path: String) -> HashMap<String, DiagnosticResult> {
     let dex = get_dex_data();
+    let base_dir = get_home_path().join(".ai-dex");
     let mut results = HashMap::new();
-    for tool in &dex.tools {
-        if let Some(ref servers) = tool.mcp_servers {
-            for (name, config) in servers {
-                if !results.contains_key(name) {
-                    results.insert(name.clone(), test_mcp_connection(config.command.clone(), config.args.clone()));
-                }
+    for tool in dex.tools {
+        if tool.config_path.as_deref() != Some(config_path.as_str()) {
+            continue;
+        }
+        if let Some(servers) = tool.mcp_servers {
+            for (name, server) in servers {
+                let result = run_diagnostic(Some(&config_path), &name, &server);
+                let _ = record_diagnostic_run(&base_dir, &config_path, &name, &server, &result);
+                results.insert(name, result);
             }
         }
     }
     results
+}
+
+#[tauri::command]
+pub fn get_mcp_diagnostic_history(
+    config_path: String,
+    server_name: String,
+) -> Result<ServerDiagnosticHistory, String> {
+    let dex = get_dex_data();
+    let current_server = dex
+        .tools
+        .into_iter()
+        .find(|tool| tool.config_path.as_deref() == Some(config_path.as_str()))
+        .and_then(|tool| tool.mcp_servers)
+        .and_then(|servers| servers.get(&server_name).cloned());
+    let base_dir = get_home_path().join(".ai-dex");
+    load_diagnostic_history(&base_dir, &config_path, &server_name, current_server.as_ref())
+}
+
+#[tauri::command]
+pub fn get_mcp_diagnostic_advice(
+    config_path: String,
+    server_name: String,
+    result: DiagnosticResult,
+) -> Result<DiagnosticAdvice, String> {
+    let history = get_mcp_diagnostic_history(config_path, server_name)?;
+    Ok(build_diagnostic_advice(&result, Some(&history)))
+}
+
+#[tauri::command]
+pub fn export_mcp_bug_bundle(
+    config_path: String,
+    server_name: String,
+    server: McpServerConfig,
+    result: DiagnosticResult,
+    recent_logs: Vec<String>,
+) -> Result<ExportedDiagnosticBundle, String> {
+    let base_dir = get_home_path().join(".ai-dex");
+    let history = load_diagnostic_history(&base_dir, &config_path, &server_name, Some(&server))?;
+    export_bug_bundle(
+        &base_dir,
+        &config_path,
+        &server_name,
+        &server,
+        &history,
+        &result,
+        &recent_logs,
+    )
 }
 
 #[tauri::command]
@@ -771,19 +796,60 @@ pub fn get_memories() -> Vec<MemoryEntry> {
 }
 
 #[tauri::command]
-pub async fn spawn_mcp_and_stream_logs(app: AppHandle, command: String, args: Vec<String>) -> Result<(), String> {
-    let mut child = TokioCommand::new(command).args(args).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
+pub async fn spawn_mcp_and_stream_logs(
+    app: AppHandle,
+    server_name: String,
+    command: String,
+    args: Vec<String>,
+    env: Option<HashMap<String, String>>,
+) -> Result<(), String> {
+    let mut launch = TokioCommand::new(&command);
+    launch
+        .args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(env_map) = &env {
+        launch.envs(env_map);
+    }
+    let mut child = launch.spawn().map_err(|e| e.to_string())?;
+    let _ = app.emit(
+        "mcp-log",
+        format!(">>> [{}] starting: {} {}", server_name, command, joined_args(&args)),
+    );
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
     let app_stdout = app.clone();
+    let stdout_server = server_name.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await { let _ = app_stdout.emit("mcp-log", line); }
+        while let Ok(Some(line)) = reader.next_line().await {
+            let _ = app_stdout.emit("mcp-log", format!("[{}][stdout] {}", stdout_server, line));
+        }
     });
     let app_stderr = app.clone();
+    let stderr_server = server_name.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = reader.next_line().await { let _ = app_stderr.emit("mcp-log", format!("ERR: {}", line)); }
+        while let Ok(Some(line)) = reader.next_line().await {
+            let _ = app_stderr.emit("mcp-log", format!("[{}][stderr] {}", stderr_server, line));
+        }
+    });
+    tokio::spawn(async move {
+        match child.wait().await {
+            Ok(status) => {
+                let _ = app.emit(
+                    "mcp-log",
+                    format!(">>> [{}] exited with status {:?}", server_name, status.code()),
+                );
+            }
+            Err(err) => {
+                let _ = app.emit(
+                    "mcp-log",
+                    format!(">>> [{}] wait failed: {}", server_name, err),
+                );
+            }
+        }
     });
     Ok(())
 }

@@ -100,13 +100,102 @@ pub struct DiffHunk {
     pub content: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticResult {
     pub success: bool,
+    pub status: String,
     pub message: String,
+    #[serde(default)]
+    pub failure_kind: Option<String>,
     pub suggestion: Option<String>,
     pub missing_runtime: Option<String>,
+    #[serde(default)]
+    pub details: Vec<String>,
+    #[serde(default)]
+    pub evidence: Vec<DiagnosticEvidence>,
+    #[serde(default)]
+    pub repair_actions: Vec<DiagnosticAction>,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticEvidence {
+    pub label: String,
+    pub value: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticAction {
+    pub kind: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub runtime: Option<String>,
+    #[serde(default)]
+    pub revision_filename: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticHistoryEntry {
+    pub checked_at: String,
+    pub status: String,
+    pub message: String,
+    #[serde(default)]
+    pub failure_kind: Option<String>,
+    #[serde(default)]
+    pub revision_filename: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SuspiciousConfigChange {
+    pub label: String,
+    pub previous_value: String,
+    pub current_value: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LastKnownGoodDiagnostic {
+    pub checked_at: String,
+    pub result: DiagnosticResult,
+    #[serde(default)]
+    pub revision_filename: Option<String>,
+    #[serde(default)]
+    pub suspicious_changes: Vec<SuspiciousConfigChange>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerDiagnosticHistory {
+    pub server_name: String,
+    pub runs: Vec<DiagnosticHistoryEntry>,
+    #[serde(default)]
+    pub last_known_good: Option<LastKnownGoodDiagnostic>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticAdvice {
+    pub title: String,
+    pub summary: String,
+    pub confidence: String,
+    #[serde(default)]
+    pub reasons: Vec<String>,
+    #[serde(default)]
+    pub recommended_steps: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportedDiagnosticBundle {
+    pub path: String,
+    pub preview: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
